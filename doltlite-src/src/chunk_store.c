@@ -2386,6 +2386,7 @@ static int csDetectExternalChanges(ChunkStore *cs, int *pChanged){
   }
 
   rc = sqlite3OsFileControl(cs->pFile, SQLITE_FCNTL_HAS_MOVED, &bMoved);
+  if( rc==SQLITE_NOTFOUND ) rc = SQLITE_OK; /* not supported by this VFS */
   if( rc!=SQLITE_OK ) return rc;
   if( bMoved ){
     *pChanged = 1;
