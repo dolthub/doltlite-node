@@ -210,8 +210,11 @@ describe("doltMerge()", () => {
     db.doltCommit("feat commit")
     db.doltCheckout("main")
     const result = db.doltMerge("feat")
-    expect(result).toMatchObject({ fast_forward: expect.any(Number), conflicts: expect.any(Number) })
-    expect(result.conflicts).toBe(0)
+    // Read values before toMatchObject (bun mutates the received object with matchers)
+    const ffVal = result.fast_forward
+    const cfVal = result.conflicts
+    expect(ffVal).toEqual(expect.any(Number))
+    expect(cfVal).toBe(0)
   })
 
   test("merged data is visible on main after merge", () => {

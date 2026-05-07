@@ -42,7 +42,12 @@ Database::Database(const Napi::CallbackInfo& info) : Napi::ObjectWrap<Database>(
 
   sqlite3_busy_timeout(db_, 5000);
   sqlite3_exec(db_, "PRAGMA foreign_keys = ON", nullptr, nullptr, nullptr);
-  sqlite3_exec(db_, "PRAGMA journal_mode = WAL", nullptr, nullptr, nullptr);
+  if (readOnly) {
+    // pager_shim.c doesn't enforce SQLITE_OPEN_READONLY; use query_only pragma instead.
+    sqlite3_exec(db_, "PRAGMA query_only = ON", nullptr, nullptr, nullptr);
+  } else {
+    sqlite3_exec(db_, "PRAGMA journal_mode = WAL", nullptr, nullptr, nullptr);
+  }
 }
 
 Database::~Database() {
@@ -120,7 +125,7 @@ Napi::Value Database::Location(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!db_) return env.Null();
   const char* loc = sqlite3_db_filename(db_, "main");
-  if (!loc || loc[0] == '\0') return env.Null();
+  if (!loc || loc[0] == '\0' || strcmp(loc, ":memory:") == 0) return env.Null();
   return Napi::String::New(env, loc);
 }
 
@@ -168,9 +173,12 @@ std::string Database::ExecScalar(Napi::Env env, const std::string& sql,
   for (int i = 0; i < (int)params.size(); i++)
     sqlite3_bind_text(stmt, i + 1, params[i].c_str(), -1, SQLITE_TRANSIENT);
   std::string out;
-  if (sqlite3_step(stmt) == SQLITE_ROW) {
+  int rc = sqlite3_step(stmt);
+  if (rc == SQLITE_ROW) {
     const char* t = (const char*)sqlite3_column_text(stmt, 0);
     if (t) out = t;
+  } else if (rc != SQLITE_DONE) {
+    ThrowSQLiteError(env, db_, sql.c_str());
   }
   sqlite3_finalize(stmt);
   return out;

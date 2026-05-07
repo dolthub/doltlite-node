@@ -3,6 +3,7 @@
     {
       "target_name": "doltlite",
       "sources": [
+        "amalgamation/doltlite_orig.c",
         "amalgamation/doltlite.c",
         "src/addon.cpp",
         "src/database.cpp",
@@ -10,6 +11,9 @@
       ],
       "include_dirs": [
         "amalgamation",
+        "doltlite-src",
+        "doltlite-src/src",
+        "doltlite-src/ext/blake3",
         "<!@(node -p \"require('node-addon-api').include\")"
       ],
       "defines": [
@@ -18,7 +22,8 @@
         "SQLITE_ENABLE_FTS5",
         "SQLITE_ENABLE_JSON1",
         "SQLITE_ENABLE_RTREE",
-        "SQLITE_ENABLE_COLUMN_METADATA"
+        "SQLITE_ENABLE_COLUMN_METADATA",
+        "DOLTLITE_PROLLY=1"
       ],
       "cflags": ["-std=c11", "-fvisibility=hidden"],
       "cflags_cc": ["-std=c++17", "-fvisibility=hidden"],
