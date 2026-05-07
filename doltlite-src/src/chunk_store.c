@@ -16,8 +16,26 @@
 #ifdef _WIN32
 # include <io.h>
 # include <windows.h>
+  /* Use a separate "<path>.lock" file for byte-range locking so that
+  ** LockFileEx on the lock fd does not conflict with WriteFile on
+  ** cs->pFile (a different HANDLE to the same path).  On Windows,
+  ** exclusive byte-range locks block writes from other handles to the
+  ** locked region even within the same process. */
+  static int csMakeLockPath(const char *path, char **ppLock){
+    int n = (int)strlen(path);
+    char *p = (char *)malloc(n + 6);
+    if( !p ) return -1;
+    memcpy(p, path, n);
+    memcpy(p + n, ".lock", 6);
+    *ppLock = p;
+    return 0;
+  }
   static int csFileLock(const char *path, int *pFd){
-    int fd = _open(path, _O_BINARY | _O_RDWR | _O_CREAT, 0644);
+    char *lockPath = 0;
+    int fd;
+    if( csMakeLockPath(path, &lockPath) ) return -1;
+    fd = _open(lockPath, _O_BINARY | _O_RDWR | _O_CREAT, 0644);
+    free(lockPath);
     if( fd < 0 ) return -1;
     {
       HANDLE h = (HANDLE)_get_osfhandle(fd);
@@ -39,7 +57,11 @@
     }
   }
   static int csFileLockNB(const char *path, int *pFd){
-    int fd = _open(path, _O_BINARY | _O_RDWR | _O_CREAT, 0644);
+    char *lockPath = 0;
+    int fd;
+    if( csMakeLockPath(path, &lockPath) ) return -1;
+    fd = _open(lockPath, _O_BINARY | _O_RDWR | _O_CREAT, 0644);
+    free(lockPath);
     if( fd < 0 ) return -1;
     {
       HANDLE h = (HANDLE)_get_osfhandle(fd);
