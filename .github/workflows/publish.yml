@@ -99,13 +99,22 @@ jobs:
       - name: Install dependencies (skip build — we have prebuilts)
         run: npm install --ignore-scripts
 
-      - name: Create GitHub Release and attach prebuilds
-        uses: softprops/action-gh-release@v2
-        with:
-          files: prebuilds/**/*.node
-          generate_release_notes: true
-
       - name: Publish to npm
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Rename prebuilds with platform prefix so they don't collide as GH release assets.
+      - name: Stage release assets
+        run: |
+          mkdir -p release-assets
+          for dir in prebuilds/*/; do
+            platform=$(basename "$dir")
+            cp "${dir}doltlite.node" "release-assets/doltlite-${platform}.node"
+          done
+
+      - name: Create GitHub Release and attach prebuilds
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*.node
+          generate_release_notes: true
