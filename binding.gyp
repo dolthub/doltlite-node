@@ -44,6 +44,9 @@
         }],
         ["OS=='mac'", {
           "libraries": ["-lpthread"]
+        }],
+        ["OS=='win'", {
+          "defines": ["strncasecmp=_strnicmp"]
         }]
       ]
     }

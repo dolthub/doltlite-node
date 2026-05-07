@@ -319,6 +319,28 @@ for (const file of EXTRA) {
 // prolly_btree.c and doltlite.c can use it without compiler flag quoting issues.
 parts.splice(1, 0, `\n/* Injected by build-amalgamation.js */\n#ifndef DOLTLITE_VERSION\n#define DOLTLITE_VERSION "${version}"\n#endif\n`)
 
+// sqlite3PagerWalSystemErrno is defined in pager.c, which is skipped in
+// DOLTLITE_PROLLY builds.  pager_shim.c does not implement it.  Provide a
+// stub: shim-pagers have no WAL (return 0); plain-sqlite Pagers (from ATTACH)
+// dispatch to the orig_ version compiled in doltlite_orig.c.
+// strncasecmp is a POSIX extension absent from MSVC — map it to _strnicmp.
+parts.push(`
+#ifdef DOLTLITE_PROLLY
+#ifdef _WIN32
+#  ifndef strncasecmp
+#    define strncasecmp _strnicmp
+#  endif
+#endif
+extern int orig_sqlite3PagerWalSystemErrno(Pager *pPager);
+int sqlite3PagerWalSystemErrno(Pager *pPager){
+  if( !pPager ) return 0;
+  /* Shim pagers start with PAGER_SHIM_MAGIC (0x50534D31) at offset 0. */
+  if( ((const unsigned int*)pPager)[0] == 0x50534D31u ) return 0;
+  return orig_sqlite3PagerWalSystemErrno(pPager);
+}
+#endif /* DOLTLITE_PROLLY */
+`)
+
 fs.mkdirSync(outDir, { recursive: true })
 fs.writeFileSync(outFile, parts.join(""))
 console.log(`Amalgamation written to ${outFile}`)
