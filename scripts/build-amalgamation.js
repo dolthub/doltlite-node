@@ -142,10 +142,35 @@ const FILE_PATCHES = [
   },
 ]
 
+// Per-file exact text patches (verbatim old → new, applied after renames).
+// Each entry: { file: basename, patches: [[oldText, newText], ...] }
+const FILE_TEXT_PATCHES = [
+  {
+    // os_win.c does not implement SQLITE_FCNTL_HAS_MOVED; sqlite3OsFileControl
+    // returns SQLITE_NOTFOUND ("unknown operation") for that opcode.
+    // csDetectExternalChanges previously propagated that error, so every write
+    // transaction on a file-based database failed on Windows.  Treat NOTFOUND
+    // the same way the standard pager does: assume the file has not moved.
+    file: "chunk_store.c",
+    patches: [
+      [
+        `  rc = sqlite3OsFileControl(cs->pFile, SQLITE_FCNTL_HAS_MOVED, &bMoved);\n  if( rc!=SQLITE_OK ) return rc;\n  if( bMoved ){`,
+        `  rc = sqlite3OsFileControl(cs->pFile, SQLITE_FCNTL_HAS_MOVED, &bMoved);\n  if( rc==SQLITE_NOTFOUND ) rc = SQLITE_OK; /* not supported by this VFS */\n  if( rc!=SQLITE_OK ) return rc;\n  if( bMoved ){`,
+      ],
+    ],
+  },
+]
+
 // Build a map from basename → rename pairs for fast lookup.
 const patchMap = new Map()
 for (const { file, renames } of FILE_PATCHES) {
   patchMap.set(file, renames)
+}
+
+// Build a map from basename → text patches for fast lookup.
+const textPatchMap = new Map()
+for (const { file, patches } of FILE_TEXT_PATCHES) {
+  textPatchMap.set(file, patches)
 }
 
 function applyRenames(src, renames) {
@@ -154,6 +179,17 @@ function applyRenames(src, renames) {
     // Word-boundary replacement: only replace complete identifiers.
     const re = new RegExp(`\\b${from}\\b`, "g")
     out = out.replace(re, to)
+  }
+  return out
+}
+
+function applyTextPatches(src, patches) {
+  let out = src
+  for (const [from, to] of patches) {
+    if (!out.includes(from)) {
+      process.stderr.write(`build-amalgamation: warning — text patch not found in source\n  expected: ${JSON.stringify(from.slice(0, 60))}\n`)
+    }
+    out = out.split(from).join(to)
   }
   return out
 }
@@ -309,6 +345,9 @@ for (const file of EXTRA) {
   let src = fs.readFileSync(p, "utf8")
   if (patchMap.has(name)) {
     src = applyRenames(src, patchMap.get(name))
+  }
+  if (textPatchMap.has(name)) {
+    src = applyTextPatches(src, textPatchMap.get(name))
   }
   parts.push(`\n/************** Begin DOLTLITE-EXTRA file ${name} **************/\n`)
   parts.push(src)
