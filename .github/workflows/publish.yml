@@ -1,0 +1,111 @@
+name: Publish
+
+# Triggered by pushing a version tag: git tag v0.10.1 && git push --tags
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  # Build prebuilt binaries for each platform/arch before publishing.
+  # Consumers get a fast install with no compilation required.
+  prebuilds:
+    name: Prebuilt — ${{ matrix.os }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x64
+            node_arch: x64
+          - os: ubuntu-latest
+            arch: arm64
+            node_arch: x64        # cross-compile on x64 runner
+          - os: macos-latest
+            arch: x64
+            node_arch: x64
+          - os: macos-latest
+            arch: arm64
+            node_arch: arm64
+          - os: windows-latest
+            arch: x64
+            node_arch: x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          architecture: ${{ matrix.node_arch }}
+
+      - name: Download amalgamation
+        run: node scripts/download.js
+
+      - name: Install node-addon-api
+        run: npm install --ignore-scripts
+
+      - name: Build prebuilt (Linux arm64 cross-compile)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64'
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          npm_config_arch=arm64 npm_config_target_arch=arm64 \
+            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+            node-gyp rebuild
+          mkdir -p prebuilds/linux-arm64
+          cp build/Release/doltlite.node prebuilds/linux-arm64/doltlite.node
+
+      - name: Build prebuilt (all others)
+        if: "!(matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64')"
+        shell: bash
+        run: |
+          node-gyp rebuild
+          OS=$(node -p "process.platform")
+          ARCH=${{ matrix.arch }}
+          mkdir -p prebuilds/${OS}-${ARCH}
+          cp build/Release/doltlite.node prebuilds/${OS}-${ARCH}/doltlite.node
+
+      - name: Upload prebuilt artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt-${{ matrix.os }}-${{ matrix.arch }}
+          path: prebuilds/
+          retention-days: 1
+
+  publish:
+    name: Publish to npm
+    needs: prebuilds
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to attach prebuilds to the GitHub release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download all prebuilt artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: prebuilds/
+          merge-multiple: true
+
+      - name: Install dependencies (skip build — we have prebuilts)
+        run: npm install --ignore-scripts
+
+      - name: Create GitHub Release and attach prebuilds
+        uses: softprops/action-gh-release@v2
+        with:
+          files: prebuilds/**/*.node
+          generate_release_notes: true
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

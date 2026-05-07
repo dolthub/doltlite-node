@@ -1,0 +1,7 @@
+.github/
+test/
+tsconfig.json
+amalgamation/
+build/
+*.log
+.DS_Store

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ["18", "20", "22"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Set up Bun (for test runner)
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: bun test test/
