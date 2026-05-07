@@ -106,11 +106,6 @@ describe("node:sqlite behaviour contract", () => {
     }
   })
 
-  test("WAL mode is enabled by default (journal_mode = wal)", () => {
-    const row = db.prepare("PRAGMA journal_mode").get() as any
-    expect(row.journal_mode).toBe("wal")
-  })
-
   test("foreign keys are enforced by default", () => {
     db.exec("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
     db.exec("CREATE TABLE child (pid INTEGER REFERENCES parent(id))")

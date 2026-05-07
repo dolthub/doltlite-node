@@ -279,7 +279,7 @@ describe("Parameter binding — type coverage", () => {
     expect(typeof row.i).toBe("number")
   })
 
-  test("throws on unsupported type (object)", () => {
-    expect(() => db.prepare("INSERT INTO types (t) VALUES (?)").run({ x: 1 })).toThrow()
+  test("throws on unsupported type (nested object as named param value)", () => {
+    expect(() => db.prepare("INSERT INTO types (t) VALUES ($v)").run({ $v: { nested: true } })).toThrow()
   })
 })

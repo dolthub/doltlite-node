@@ -1,20 +1,24 @@
 import { tmpdir } from "os"
 import { join } from "path"
-import { mkdirSync, rmSync, existsSync } from "fs"
+import { mkdirSync, rmSync, existsSync, realpathSync } from "fs"
 import { randomBytes } from "crypto"
 
 /**
  * Creates a unique temporary directory for a test database.
  * Returns the db path and a cleanup function.
+ *
+ * realpathSync resolves symlinks (e.g. /tmp → /private/tmp on macOS) so that
+ * the path we store matches what sqlite3_db_filename returns.
  */
 export function tmpDb(prefix = "doltlite-test"): { path: string; cleanup: () => void } {
   const dir = join(tmpdir(), `${prefix}-${randomBytes(6).toString("hex")}`)
   mkdirSync(dir, { recursive: true })
-  const path = join(dir, "test.db")
+  const realDir = realpathSync(dir)
+  const path = join(realDir, "test.db")
   return {
     path,
     cleanup() {
-      try { rmSync(dir, { recursive: true, force: true }) } catch {}
+      try { rmSync(realDir, { recursive: true, force: true }) } catch {}
     },
   }
 }

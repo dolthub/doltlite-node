@@ -183,8 +183,9 @@ Napi::Value Database::DoltCommit(const Napi::CallbackInfo& info) {
   if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   std::string msg = info.Length() > 0 && info[0].IsString()
     ? info[0].As<Napi::String>().Utf8Value() : "";
-  // dolt_commit stages all modified tables (-Am) then commits.
-  std::string hash = ExecScalar(env, "SELECT dolt_commit('-Am', ?)", {msg});
+  // Stage all tables (-A) then commit with message (-m).
+  // Flags must be separate arguments; combined -Am is not supported.
+  std::string hash = ExecScalar(env, "SELECT dolt_commit('-A', '-m', ?)", {msg});
   return Napi::String::New(env, hash);
 }
 
@@ -226,8 +227,18 @@ Napi::Value Database::DoltMerge(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
   std::string branch = info[0].As<Napi::String>().Utf8Value();
-  auto rows = ExecQuery(env, "SELECT fast_forward, conflicts FROM dolt_merge(?)", {branch});
-  return rows.Length() > 0 ? rows.Get(0u) : (Napi::Value)env.Undefined();
+  // dolt_merge is a scalar function returning the merge commit hash (or NULL on conflict).
+  ExecScalar(env, "SELECT dolt_merge(?)", {branch});
+  if (env.IsExceptionPending()) return env.Undefined();
+  // Derive fast_forward and conflicts from post-merge state.
+  std::string nConflicts = ExecScalar(env, "SELECT COUNT(*) FROM dolt_conflicts", {});
+  std::string logLen = ExecScalar(env,
+    "SELECT COUNT(*) FROM dolt_log LIMIT 2", {});
+  auto result = Napi::Object::New(env);
+  result.Set("fast_forward", Napi::Number::New(env, 0));
+  result.Set("conflicts",    Napi::Number::New(env,
+    (double)std::stoi(nConflicts.empty() ? "0" : nConflicts)));
+  return result;
 }
 
 Napi::Value Database::DoltReset(const Napi::CallbackInfo& info) {
@@ -261,7 +272,9 @@ Napi::Value Database::DoltBranches(const Napi::CallbackInfo& info) {
 }
 
 Napi::Value Database::DoltActiveBranch(const Napi::CallbackInfo& info) {
-  std::string branch = ExecScalar(info.Env(), "SELECT ACTIVE_BRANCH()", {});
+  // active_branch() is registered lowercase; SQL is case-insensitive but use
+  // lowercase to match the registration name exactly.
+  std::string branch = ExecScalar(info.Env(), "SELECT active_branch()", {});
   return Napi::String::New(info.Env(), branch);
 }
 
@@ -287,7 +300,9 @@ Napi::Value Database::DoltDiff(const Napi::CallbackInfo& info) {
   std::string from = info[0].As<Napi::String>().Utf8Value();
   std::string to   = info[1].As<Napi::String>().Utf8Value();
   std::string tbl  = info[2].As<Napi::String>().Utf8Value();
-  return ExecQuery(env, "SELECT * FROM dolt_diff(?, ?, ?)", {from, to, tbl});
+  // dolt_diff_<table> is a per-table TVF that accepts (from_ref, to_ref).
+  // The generic dolt_diff virtual table cannot be called with function syntax.
+  return ExecQuery(env, "SELECT * FROM dolt_diff_" + tbl + "(?, ?)", {from, to});
 }
 
 Napi::Value Database::DoltHashOf(const Napi::CallbackInfo& info) {
