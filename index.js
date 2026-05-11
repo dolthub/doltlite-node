@@ -1,6 +1,7 @@
 "use strict"
 
 const path = require("path")
+const fs = require("fs")
 
 // Try a prebuilt binary first (shipped with published packages),
 // then fall back to a locally compiled build.
@@ -23,5 +24,24 @@ function loadAddon() {
   )
 }
 
+// Absolute path to the platform's `doltlite` CLI binary, shipped in the
+// package's prebuilds/ alongside the .node addon. Used by consumers (e.g.
+// opencode) that want to spawn an interactive shell or pipe SQL through
+// the doltlite shell. Throws if the binary isn't bundled for this platform.
+function binPath() {
+  const platform = process.platform
+  const arch = process.arch
+  const ext = platform === "win32" ? ".exe" : ""
+  const candidate = path.join(__dirname, "prebuilds", `${platform}-${arch}`, `doltlite${ext}`)
+  if (!fs.existsSync(candidate)) {
+    throw new Error(
+      `@dolthub/doltlite: no doltlite CLI binary bundled for ${platform}-${arch}.\n` +
+      `Expected at ${candidate}. File an issue at ` +
+      `https://github.com/dolthub/doltlite-node/issues`
+    )
+  }
+  return candidate
+}
+
 const { DatabaseSync, StatementSync } = loadAddon()
-module.exports = { DatabaseSync, StatementSync }
+module.exports = { DatabaseSync, StatementSync, binPath }

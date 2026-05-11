@@ -6,6 +6,14 @@
  * changing their import. Dolt-specific methods are added under `dolt*` names.
  */
 
+/**
+ * Absolute path to the platform's `doltlite` CLI binary bundled in this
+ * package. Use it to spawn the shell (interactive or with a script piped
+ * via stdio). Throws if the binary isn't bundled for the current
+ * platform/arch.
+ */
+export function binPath(): string
+
 export interface ColumnInfo {
   name: string | null
   column: string | null

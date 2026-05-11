@@ -67,6 +67,28 @@ jobs:
           mkdir -p prebuilds/${OS}-${ARCH}
           cp build/Release/doltlite.node prebuilds/${OS}-${ARCH}/doltlite.node
 
+      # Download the `doltlite` CLI binary from the upstream dolthub/doltlite
+      # release that matches our version, and place it next to doltlite.node
+      # so consumers can spawn an interactive shell via binPath().
+      # Upstream only ships tools for linux-x64, osx-arm64, and win-x64;
+      # other platforms get the .node addon but not the CLI.
+      - name: Bundle doltlite CLI binary
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          # Map node platform-arch → upstream release platform-arch.
+          case "${{ matrix.os }}-${{ matrix.arch }}" in
+            ubuntu-latest-x64)   UPSTREAM=linux-x64;    OUT=linux-x64;   BIN=doltlite ;;
+            macos-latest-arm64)  UPSTREAM=osx-arm64;    OUT=darwin-arm64; BIN=doltlite ;;
+            windows-latest-x64)  UPSTREAM=win-x64;      OUT=win32-x64;   BIN=doltlite.exe ;;
+            *) echo "no upstream tools build for ${{ matrix.os }}-${{ matrix.arch }}, skipping CLI bundle"; exit 0 ;;
+          esac
+          URL="https://github.com/dolthub/doltlite/releases/download/v${VERSION}/doltlite-tools-${UPSTREAM}-${VERSION}.zip"
+          echo "Downloading ${URL}"
+          curl -fsSL -o tools.zip "${URL}"
+          unzip -j tools.zip "*/${BIN}" -d "prebuilds/${OUT}/"
+          chmod +x "prebuilds/${OUT}/${BIN}" || true
+
       - name: Upload prebuilt artifact
         uses: actions/upload-artifact@v4
         with:
@@ -111,10 +133,17 @@ jobs:
           for dir in prebuilds/*/; do
             platform=$(basename "$dir")
             cp "${dir}doltlite.node" "release-assets/doltlite-${platform}.node"
+            # Some platforms also ship the doltlite CLI binary.
+            if [ -f "${dir}doltlite" ]; then
+              cp "${dir}doltlite" "release-assets/doltlite-${platform}"
+            fi
+            if [ -f "${dir}doltlite.exe" ]; then
+              cp "${dir}doltlite.exe" "release-assets/doltlite-${platform}.exe"
+            fi
           done
 
       - name: Create GitHub Release and attach prebuilds
         uses: softprops/action-gh-release@v2
         with:
-          files: release-assets/*.node
+          files: release-assets/*
           generate_release_notes: true
