@@ -67,6 +67,11 @@ jobs:
           mkdir -p prebuilds/${OS}-${ARCH}
           cp build/Release/doltlite.node prebuilds/${OS}-${ARCH}/doltlite.node
 
+      # The CLI binary is fetched by scripts/download.js in the
+      # "Download amalgamation" step earlier and is already at
+      # prebuilds/${platform}-${arch}/doltlite[.exe], so nothing extra
+      # to do here.
+
       - name: Upload prebuilt artifact
         uses: actions/upload-artifact@v4
         with:
@@ -111,10 +116,17 @@ jobs:
           for dir in prebuilds/*/; do
             platform=$(basename "$dir")
             cp "${dir}doltlite.node" "release-assets/doltlite-${platform}.node"
+            # Some platforms also ship the doltlite CLI binary.
+            if [ -f "${dir}doltlite" ]; then
+              cp "${dir}doltlite" "release-assets/doltlite-${platform}"
+            fi
+            if [ -f "${dir}doltlite.exe" ]; then
+              cp "${dir}doltlite.exe" "release-assets/doltlite-${platform}.exe"
+            fi
           done
 
       - name: Create GitHub Release and attach prebuilds
         uses: softprops/action-gh-release@v2
         with:
-          files: release-assets/*.node
+          files: release-assets/*
           generate_release_notes: true
