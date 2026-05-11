@@ -147,19 +147,6 @@ db.exec("SELECT dolt_commit('-Am', 'my message')")
 | `doltCherryPick(hash)` | `void` | Cherry-pick a commit onto HEAD |
 | `doltRevert(ref?)` | `void` | Revert a commit (default: HEAD) |
 
-### `binPath()`
-
-Returns the absolute path to the bundled `doltlite` CLI binary for the current platform. Useful when a consumer wants to spawn the shell directly — e.g. for an interactive `db` subcommand — rather than driving everything through the Node bindings.
-
-```javascript
-import { binPath } from "@dolthub/doltlite"
-import { spawn } from "child_process"
-
-const child = spawn(binPath(), ["mydata.db"], { stdio: "inherit" })
-```
-
-Throws if no CLI build is bundled for the current platform/arch. (Upstream currently ships CLI tools for `linux-x64`, `darwin-arm64`, and `win32-x64`; the `.node` addon covers more platforms than the shell.)
-
 ## Building from source
 
 ```bash
