@@ -3,12 +3,21 @@
 #include "util.h"
 #include <vector>
 
-Napi::FunctionReference Statement::constructor_;
+// Per-env storage for the Statement constructor so re-loading in a Worker
+// thread doesn't overwrite the main thread's constructor reference.
+struct StatementEnvData {
+  Napi::FunctionReference constructor;
+};
+
+Napi::FunctionReference& Statement::GetConstructor(Napi::Env env) {
+  auto* data = env.GetInstanceData<StatementEnvData>();
+  return data->constructor;
+}
 
 // ── Factory (called from Database::Prepare) ──────────────────────────────────
 
 Napi::Object Statement::Create(Napi::Env env, Database* db, sqlite3_stmt* stmt) {
-  auto obj = constructor_.New({});
+  auto obj = GetConstructor(env).New({});
   auto* self = Napi::ObjectWrap<Statement>::Unwrap(obj);
   self->db_ = db;
   self->stmt_ = stmt;
@@ -173,8 +182,10 @@ Napi::Object Statement::Init(Napi::Env env, Napi::Object exports) {
     InstanceAccessor("sourceSQL",   &Statement::SourceSQLGetter,   nullptr),
     InstanceAccessor("expandedSQL", &Statement::ExpandedSQLGetter, nullptr),
   });
-  constructor_ = Napi::Persistent(ctor);
-  constructor_.SuppressDestruct();
+  auto* data = new StatementEnvData();
+  data->constructor = Napi::Persistent(ctor);
+  data->constructor.SuppressDestruct();
+  env.SetInstanceData<StatementEnvData>(data);
   exports.Set("StatementSync", ctor);
   return exports;
 }

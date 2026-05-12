@@ -25,5 +25,5 @@ private:
   Napi::Value SourceSQLGetter(const Napi::CallbackInfo& info);
   Napi::Value ExpandedSQLGetter(const Napi::CallbackInfo& info);
 
-  static Napi::FunctionReference constructor_;
+  static Napi::FunctionReference& GetConstructor(Napi::Env env);
 };
