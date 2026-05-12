@@ -6,9 +6,6 @@
         "amalgamation/doltlite_orig.c",
         "amalgamation/doltlite.c",
         "amalgamation/blake3_sse2_impl.c",
-        "amalgamation/blake3_sse41_impl.c",
-        "amalgamation/blake3_avx2_impl.c",
-        "amalgamation/blake3_avx512_impl.c",
         "amalgamation/blake3_neon_impl.c",
         "src/addon.cpp",
         "src/bun_compat.cpp",
@@ -26,7 +23,10 @@
         "SQLITE_ENABLE_JSON1",
         "SQLITE_ENABLE_RTREE",
         "SQLITE_ENABLE_COLUMN_METADATA",
-        "DOLTLITE_PROLLY=1"
+        "DOLTLITE_PROLLY=1",
+        "BLAKE3_NO_SSE41=1",
+        "BLAKE3_NO_AVX2=1",
+        "BLAKE3_NO_AVX512=1"
       ],
       "cflags": ["-std=c11", "-fvisibility=hidden"],
       "cflags_cc": ["-std=c++17", "-fvisibility=hidden"],
