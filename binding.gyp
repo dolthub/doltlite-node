@@ -12,9 +12,6 @@
       ],
       "include_dirs": [
         "amalgamation",
-        "doltlite-src",
-        "doltlite-src/src",
-        "doltlite-src/ext/blake3",
         "<!@(node -p \"require('node-addon-api').include\")"
       ],
       "defines": [
@@ -27,6 +24,11 @@
         "DOLTLITE_PROLLY=1"
       ],
       "cflags": ["-std=c11", "-fvisibility=hidden"],
+      "cflags_c": [
+        "-I<(module_root_dir)/doltlite-src",
+        "-I<(module_root_dir)/doltlite-src/src",
+        "-I<(module_root_dir)/doltlite-src/ext/blake3"
+      ],
       "cflags_cc": ["-std=c++17", "-fvisibility=hidden"],
       "xcode_settings": {
         "GCC_ENABLE_CPP_EXCEPTIONS": "NO",
@@ -47,7 +49,12 @@
           "libraries": ["-lpthread"]
         }],
         ["OS=='win'", {
-          "defines": ["strncasecmp=_strnicmp"]
+          "defines": ["strncasecmp=_strnicmp"],
+          "include_dirs": [
+            "doltlite-src",
+            "doltlite-src/src",
+            "doltlite-src/ext/blake3"
+          ]
         }]
       ]
     }
