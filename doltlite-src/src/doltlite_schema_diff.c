@@ -172,10 +172,6 @@ static int appendSchemaDiffRow(
   return SQLITE_OK;
 }
 
-/* Schema records live in the sqlite_master (iTable==1) prolly tree,
-** same layout as stock SQLite: [type, name, tbl_name, rootpage, sql].
-** We pull fields 0 (type), 1 (name), 4 (sql). Callers use this to
-** reproduce a CREATE TABLE for introspection and for schema-merge. */
 int loadSchemaFromCatalog(
   sqlite3 *db,
   ChunkStore *cs,
@@ -195,7 +191,6 @@ int loadSchemaFromCatalog(
   rc = doltliteLoadCatalog(db, pCatHash, &aTables, &nTables, 0);
   if( rc!=SQLITE_OK ){ *ppEntries = 0; *pnEntries = 0; return rc; }
 
-
   memset(&masterRoot, 0, sizeof(masterRoot));
   for(i=0; i<nTables; i++){
     if( aTables[i].iTable==1 ){
@@ -210,7 +205,6 @@ int loadSchemaFromCatalog(
     *ppEntries = 0; *pnEntries = 0;
     return SQLITE_OK;
   }
-
 
   prollyCursorInit(&cur, cs, pCache, &masterRoot, masterFlags);
   rc = prollyCursorFirst(&cur, &res);
@@ -332,7 +326,6 @@ static int computeSchemaDiff(
     memset(toConsumed, 0, nTo);
   }
 
-
   for(i=0; i<nTo; i++){
     SchemaEntry *fromEntry;
     struct TableEntry *toTE;
@@ -368,7 +361,6 @@ static int computeSchemaDiff(
     }
   }
 
-
   for(i=0; i<nTo; i++){
     SchemaEntry *fromEntry;
     if( toConsumed && toConsumed[i] ) continue;
@@ -387,7 +379,6 @@ static int computeSchemaDiff(
       if( rc!=SQLITE_OK ) goto done;
     }
   }
-
 
   for(i=0; i<nFrom; i++){
     SchemaEntry *toEntry;
@@ -504,18 +495,40 @@ static int sdResolveRefs(
   }
 
   rc = doltliteResolveRef(db, zFromRef, &commitHash);
-  if( rc!=SQLITE_OK ) return rc;
+  if( rc!=SQLITE_OK ){
+    sqlite3_free(pVtab->zErrMsg);
+    pVtab->zErrMsg = sqlite3_mprintf(
+      "dolt_schema_diff: from_ref '%s' could not be resolved", zFromRef);
+    return SQLITE_ERROR;
+  }
   memset(&commit, 0, sizeof(commit));
   rc = doltliteLoadCommit(db, &commitHash, &commit);
-  if( rc!=SQLITE_OK ) return rc;
+  if( rc!=SQLITE_OK ){
+    sqlite3_free(pVtab->zErrMsg);
+    pVtab->zErrMsg = sqlite3_mprintf(
+      "dolt_schema_diff: from_ref '%s' resolved to a hash but the "
+      "commit could not be loaded", zFromRef);
+    return SQLITE_ERROR;
+  }
   memcpy(pFromCatHash, &commit.catalogHash, sizeof(ProllyHash));
   doltliteCommitClear(&commit);
 
   rc = doltliteResolveRef(db, zToRef, &commitHash);
-  if( rc!=SQLITE_OK ) return rc;
+  if( rc!=SQLITE_OK ){
+    sqlite3_free(pVtab->zErrMsg);
+    pVtab->zErrMsg = sqlite3_mprintf(
+      "dolt_schema_diff: to_ref '%s' could not be resolved", zToRef);
+    return SQLITE_ERROR;
+  }
   memset(&commit, 0, sizeof(commit));
   rc = doltliteLoadCommit(db, &commitHash, &commit);
-  if( rc!=SQLITE_OK ) return rc;
+  if( rc!=SQLITE_OK ){
+    sqlite3_free(pVtab->zErrMsg);
+    pVtab->zErrMsg = sqlite3_mprintf(
+      "dolt_schema_diff: to_ref '%s' resolved to a hash but the "
+      "commit could not be loaded", zToRef);
+    return SQLITE_ERROR;
+  }
   memcpy(pToCatHash, &commit.catalogHash, sizeof(ProllyHash));
   doltliteCommitClear(&commit);
 
@@ -637,7 +650,6 @@ static int sdFilter(sqlite3_vtab_cursor *cur,
   if( rc!=SQLITE_OK ) goto sd_filter_done;
   rc = loadSchemaFromCatalog(db, cs, pCache, &toCatHash, &aTo, &nTo);
   if( rc!=SQLITE_OK ) goto sd_filter_done;
-
 
   rc = doltliteLoadCatalog(db, &fromCatHash, &aFromTables, &nFromTables, 0);
   if( rc!=SQLITE_OK ) goto sd_filter_done;
