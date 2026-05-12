@@ -6,6 +6,7 @@
         "amalgamation/doltlite_orig.c",
         "amalgamation/doltlite.c",
         "src/addon.cpp",
+        "src/bun_compat.cpp",
         "src/database.cpp",
         "src/statement.cpp"
       ],
