@@ -39,7 +39,7 @@ static int remoteSqlStateSave(sqlite3 *db, ChunkStore *cs, RemoteSqlState *p){
 
   memset(p, 0, sizeof(*p));
 
-  memcpy(&p->refsHash, &cs->refsHash, sizeof(ProllyHash));
+  memcpy(&p->refsHash, refsTableGetHash(&cs->refs), sizeof(ProllyHash));
 
   p->zSessionBranch = sqlite3_mprintf("%s", doltliteGetSessionBranch(db));
   if( !p->zSessionBranch ){
@@ -62,7 +62,7 @@ static int remoteSqlStateSave(sqlite3 *db, ChunkStore *cs, RemoteSqlState *p){
 static int remoteSqlStateRestore(sqlite3 *db, ChunkStore *cs, RemoteSqlState *p){
   int rc;
 
-  memcpy(&cs->refsHash, &p->refsHash, sizeof(ProllyHash));
+  refsTableSetHash(&cs->refs, &p->refsHash);
   if( prollyHashIsEmpty(&p->refsHash) ){
     chunkStoreClearRefs(cs);
   }else{
@@ -154,7 +154,7 @@ static int remoteSqlOpenNamedRemote(
     return SQLITE_NOTFOUND;
   }
 
-  *ppRemote = openRemoteByUrl(cs->pVfs, *pzUrl);
+  *ppRemote = openRemoteByUrl(chunkFileGetVfs(&cs->file), *pzUrl);
   if( !*ppRemote ){
     return SQLITE_CANTOPEN;
   }
@@ -348,7 +348,7 @@ static void doltPushFunc(sqlite3_context *ctx, int argc, sqlite3_value **argv){
     return;
   }
 
-  pRemote = openRemoteByUrl(cs->pVfs, zUrl);
+  pRemote = openRemoteByUrl(chunkFileGetVfs(&cs->file), zUrl);
   if( !pRemote ){
     (void)doltliteVcSealSavepointError(db);
     sqlite3_result_error(ctx, "failed to open remote (URL must start with file://)", -1);
@@ -361,7 +361,8 @@ static void doltPushFunc(sqlite3_context *ctx, int argc, sqlite3_value **argv){
   if( rc!=SQLITE_OK ){
     (void)doltliteVcSealSavepointError(db);
     remoteSqlResultError(ctx, rc,
-      rc==SQLITE_ERROR ? "push failed (not a fast-forward?)" : 0);
+      rc==SQLITE_BUSY ? "push failed (remote refs changed)"
+      : rc==SQLITE_ERROR ? "push failed (not a fast-forward?)" : 0);
     return;
   }
   sqlite3_result_int(ctx, 0);
@@ -397,26 +398,30 @@ static int parseRemoteBranchNames(
     chunkStoreClose(&refsView);
     return rc;
   }
-  if( refsView.nBranches > nRefsData / 44 ){
-    chunkStoreClose(&refsView);
-    return SQLITE_CORRUPT;
-  }
-
-  if( refsView.nBranches>0 ){
-    azNames = sqlite3_malloc(refsView.nBranches * sizeof(char*));
-    if( !azNames ){
+  {
+    int nBr;
+    const BranchRef *aBr;
+    refsTableGetBranches(&refsView.refs, &nBr, &aBr);
+    if( nBr > nRefsData / 44 ){
       chunkStoreClose(&refsView);
-      return SQLITE_NOMEM;
+      return SQLITE_CORRUPT;
     }
-    memset(azNames, 0, refsView.nBranches * sizeof(char*));
-    for(i=0; i<refsView.nBranches; i++){
-      azNames[nNames] = sqlite3_mprintf("%s", refsView.aBranches[i].zName);
-      if( !azNames[nNames] ){
-        freeNameList(azNames, nNames);
+    if( nBr>0 ){
+      azNames = sqlite3_malloc(nBr * sizeof(char*));
+      if( !azNames ){
         chunkStoreClose(&refsView);
         return SQLITE_NOMEM;
       }
-      nNames++;
+      memset(azNames, 0, nBr * sizeof(char*));
+      for(i=0; i<nBr; i++){
+        azNames[nNames] = sqlite3_mprintf("%s", aBr[i].zName);
+        if( !azNames[nNames] ){
+          freeNameList(azNames, nNames);
+          chunkStoreClose(&refsView);
+          return SQLITE_NOMEM;
+        }
+        nNames++;
+      }
     }
   }
   chunkStoreClose(&refsView);
@@ -465,7 +470,7 @@ static void doltFetchFunc(sqlite3_context *ctx, int argc, sqlite3_value **argv){
     return;
   }
 
-  pRemote = openRemoteByUrl(cs->pVfs, zUrl);
+  pRemote = openRemoteByUrl(chunkFileGetVfs(&cs->file), zUrl);
   if( !pRemote ){
     (void)doltliteVcSealSavepointError(db);
     sqlite3_result_error(ctx, "failed to open remote (URL must start with file://)", -1);
@@ -507,7 +512,7 @@ static void doltFetchFunc(sqlite3_context *ctx, int argc, sqlite3_value **argv){
     pRemote = 0;
 
     for(i=0; i<nNames; i++){
-      DoltliteRemote *pBrRemote = openRemoteByUrl(cs->pVfs, zUrl);
+      DoltliteRemote *pBrRemote = openRemoteByUrl(chunkFileGetVfs(&cs->file), zUrl);
       if( !pBrRemote ){
         freeNameList(azNames, nNames);
         (void)doltliteVcSealSavepointError(db);
@@ -704,10 +709,13 @@ static void doltCloneFunc(sqlite3_context *ctx, int argc, sqlite3_value **argv){
 
   if( !chunkStoreIsEmpty(cs) ){
     int virgin = 0;
-    if( cs->nBranches==1 ){
+    int nBr;
+    const BranchRef *aBr;
+    refsTableGetBranches(&cs->refs, &nBr, &aBr);
+    if( nBr==1 ){
       DoltliteCommit c;
       memset(&c, 0, sizeof(c));
-      if( doltliteLoadCommit(db, &cs->aBranches[0].commitHash, &c)==SQLITE_OK
+      if( doltliteLoadCommit(db, &aBr[0].commitHash, &c)==SQLITE_OK
        && doltliteCommitParentCount(&c)==0 ){
         virgin = 1;
       }
@@ -731,7 +739,7 @@ static void doltCloneFunc(sqlite3_context *ctx, int argc, sqlite3_value **argv){
     chunkStoreClearRefs(cs);
   }
 
-  pRemote = openRemoteByUrl(cs->pVfs, zUrl);
+  pRemote = openRemoteByUrl(chunkFileGetVfs(&cs->file), zUrl);
   if( !pRemote ){
     remoteSqlRestoreAndReport(ctx, db, cs, &savedState, SQLITE_ERROR,
                               "failed to open remote (URL must start with file://)");
@@ -756,7 +764,7 @@ static void doltCloneFunc(sqlite3_context *ctx, int argc, sqlite3_value **argv){
   {
     u8 *refsData = 0; int nRefsData = 0;
     ProllyHash refsHash;
-    memcpy(&refsHash, &cs->refsHash, sizeof(ProllyHash));
+    memcpy(&refsHash, refsTableGetHash(&cs->refs), sizeof(ProllyHash));
     if( !prollyHashIsEmpty(&refsHash) ){
       rc = chunkStoreGet(cs, &refsHash, &refsData, &nRefsData);
       (void)refsData;
@@ -767,9 +775,12 @@ static void doltCloneFunc(sqlite3_context *ctx, int argc, sqlite3_value **argv){
   {
     const char *zDefault = chunkStoreGetDefaultBranch(cs);
     ProllyHash branchCommit;
+    int nBr;
+    const BranchRef *aBr;
+    refsTableGetBranches(&cs->refs, &nBr, &aBr);
 
-    if( !zDefault && cs->nBranches > 0 ){
-      zDefault = cs->aBranches[0].zName;
+    if( !zDefault && nBr > 0 ){
+      zDefault = aBr[0].zName;
     }
 
     if( zDefault ){
@@ -841,14 +852,17 @@ static int remNext(sqlite3_vtab_cursor *c){ ((RemCur*)c)->iRow++; return SQLITE_
 static int remEof(sqlite3_vtab_cursor *c){
   RemVtab *v = (RemVtab*)c->pVtab;
   ChunkStore *cs = doltliteGetChunkStore(v->db);
-  return !cs || ((RemCur*)c)->iRow >= cs->nRemotes;
+  return !cs || ((RemCur*)c)->iRow >= refsTableRemoteCount(&cs->refs);
 }
 static int remColumn(sqlite3_vtab_cursor *c, sqlite3_context *ctx, int col){
   RemVtab *v = (RemVtab*)c->pVtab;
   ChunkStore *cs = doltliteGetChunkStore(v->db);
-  struct RemoteRef *rem;
+  const RemoteRef *rem;
+  int nRm;
+  const RemoteRef *aRm;
   if(!cs) return SQLITE_OK;
-  rem = &cs->aRemotes[((RemCur*)c)->iRow];
+  refsTableGetRemotes(&cs->refs, &nRm, &aRm);
+  rem = &aRm[((RemCur*)c)->iRow];
   switch(col){
     case 0:
       sqlite3_result_text(ctx, rem->zName, -1, SQLITE_TRANSIENT);

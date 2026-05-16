@@ -54,6 +54,12 @@ const EXTRA = [
   "prolly_hashset.c",
   "prolly_node.c",
   "prolly_cache.c",
+  // chunk store subsystems (split out of chunk_store.c in 0.10.8)
+  "chunk_file.c",
+  "chunk_refs.c",
+  "chunk_index.c",
+  "chunk_staging.c",
+  "chunk_wal.c",
   "chunk_store.c",
   "prolly_cursor.c",
   "prolly_mutmap.c",
@@ -158,8 +164,8 @@ const FILE_TEXT_PATCHES = [
     patches: [
       // 0.10.5 used 2-space indent; 0.10.6 uses 4-space inside the hasMovedChecked guard.
       [
-        `    rc = sqlite3OsFileControl(cs->pFile, SQLITE_FCNTL_HAS_MOVED, &bMoved);\n    if( rc!=SQLITE_OK ) return rc;\n    if( bMoved ){`,
-        `    rc = sqlite3OsFileControl(cs->pFile, SQLITE_FCNTL_HAS_MOVED, &bMoved);\n    if( rc==SQLITE_NOTFOUND ) rc = SQLITE_OK; /* not supported by this VFS */\n    if( rc!=SQLITE_OK ) return rc;\n    if( bMoved ){`,
+        `    rc = sqlite3OsFileControl(cs->file.pFile, SQLITE_FCNTL_HAS_MOVED, &bMoved);\n    if( rc!=SQLITE_OK ) return rc;\n    if( bMoved ){`,
+        `    rc = sqlite3OsFileControl(cs->file.pFile, SQLITE_FCNTL_HAS_MOVED, &bMoved);\n    if( rc==SQLITE_NOTFOUND ) rc = SQLITE_OK; /* not supported by this VFS */\n    if( rc!=SQLITE_OK ) return rc;\n    if( bMoved ){`,
       ],
       // On Windows, csFileLock / csFileLockNB opened the database file itself
       // and held an exclusive byte-range lock over ALL bytes.  sqlite3OsWrite

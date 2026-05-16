@@ -31,7 +31,7 @@
 ** SQLITE_VERSION_NUMBER 3054000
 ** SQLITE_SOURCE_ID "2026-05-04 18:36:04 b6ad35096d48de29fd8da498ac23cd7eba9194a70cad05ec49c318f11fe7alt1"
 **
-** Emscripten SDK: 3.1.6
+** Emscripten SDK: 3.1.74
 */
 /*
   2022-05-22

@@ -98,6 +98,8 @@ static int caClose(sqlite3_vtab_cursor *pCursor){
   return SQLITE_OK;
 }
 
+static int caEnqueue(CommitAncestorsCursor *pCur, const ProllyHash *p);
+
 static int caLoadNextCommit(CommitAncestorsCursor *pCur, sqlite3 *db){
   int i, rc;
 
@@ -126,16 +128,10 @@ static int caLoadNextCommit(CommitAncestorsCursor *pCur, sqlite3 *db){
 
     for(i = 0; i < doltliteCommitParentCount(&pCur->curCommit); i++){
       const ProllyHash *pParent = doltliteCommitParentHash(&pCur->curCommit, i);
-      if( !pParent || prollyHashIsEmpty(pParent) ) continue;
-      if( pCur->qTail >= pCur->qAlloc ){
-        int nNew = pCur->qAlloc ? pCur->qAlloc*2 : 16;
-        ProllyHash *tmp = sqlite3_realloc(pCur->aQueue,
-                                           nNew*(int)sizeof(ProllyHash));
-        if( !tmp ) return SQLITE_NOMEM;
-        pCur->aQueue = tmp;
-        pCur->qAlloc = nNew;
+      if( pParent ){
+        rc = caEnqueue(pCur, pParent);
+        if( rc!=SQLITE_OK ) return rc;
       }
-      pCur->aQueue[pCur->qTail++] = *pParent;
     }
     return SQLITE_OK;
   }
@@ -156,12 +152,14 @@ static int caNext(sqlite3_vtab_cursor *pCursor){
 static int caEnqueue(CommitAncestorsCursor *pCur, const ProllyHash *p){
   if( prollyHashIsEmpty(p) ) return SQLITE_OK;
   if( pCur->qTail >= pCur->qAlloc ){
-    int nNew = pCur->qAlloc ? pCur->qAlloc*2 : 16;
-    ProllyHash *tmp = sqlite3_realloc(pCur->aQueue,
-                                       nNew*(int)sizeof(ProllyHash));
+    i64 nNew = pCur->qAlloc ? (i64)pCur->qAlloc * 2 : (i64)16;
+    ProllyHash *tmp;
+    if( nNew > (i64)0x7fffffff/(i64)sizeof(ProllyHash) ) return SQLITE_NOMEM;
+    tmp = sqlite3_realloc(pCur->aQueue,
+                          (int)(nNew * (i64)sizeof(ProllyHash)));
     if( !tmp ) return SQLITE_NOMEM;
     pCur->aQueue = tmp;
-    pCur->qAlloc = nNew;
+    pCur->qAlloc = (int)nNew;
   }
   pCur->aQueue[pCur->qTail++] = *p;
   return SQLITE_OK;
@@ -193,13 +191,21 @@ static int caFilter(
   rc = caEnqueue(pCur, &head);
   if( rc!=SQLITE_OK ) return rc;
 
-  for( i = 0; i < cs->nBranches; i++ ){
-    rc = caEnqueue(pCur, &cs->aBranches[i].commitHash);
-    if( rc!=SQLITE_OK ) return rc;
+  {
+    int nBr; const BranchRef *aBr;
+    refsTableGetBranches(&cs->refs, &nBr, &aBr);
+    for( i = 0; i < nBr; i++ ){
+      rc = caEnqueue(pCur, &aBr[i].commitHash);
+      if( rc!=SQLITE_OK ) return rc;
+    }
   }
-  for( i = 0; i < cs->nTags; i++ ){
-    rc = caEnqueue(pCur, &cs->aTags[i].commitHash);
-    if( rc!=SQLITE_OK ) return rc;
+  {
+    int nTg; const TagRef *aTg;
+    refsTableGetTags(&cs->refs, &nTg, &aTg);
+    for( i = 0; i < nTg; i++ ){
+      rc = caEnqueue(pCur, &aTg[i].commitHash);
+      if( rc!=SQLITE_OK ) return rc;
+    }
   }
 
   if( pCur->qTail == 0 ) return SQLITE_OK;

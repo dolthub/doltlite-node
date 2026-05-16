@@ -87,6 +87,7 @@ int doltliteSerializeCatalogEntriesWithFallbackSchema(
     u8 **ppOut, int *pnOut);
 int doltliteGetHeadCatalogHash(sqlite3 *db, ProllyHash *pCatHash);
 int doltliteFlushAndSerializeCatalog(sqlite3 *db, u8 **ppOut, int *pnOut);
+int doltliteDeserializeCatalogForTest(sqlite3 *db, const u8 *data, int nData);
 int doltliteFlushCatalogToHash(sqlite3 *db, ProllyHash *pHash);
 int doltliteGetWorkingTableState(sqlite3 *db, const char *zTable,
                                  ProllyHash *pRoot, u8 *pFlags,
@@ -210,6 +211,16 @@ struct MigrateDiffCtx {
   int *aiColIdx;
   char **azColNames;
   int nCols;
+  /* For PROLLY_DIFF_ADD: their-side row doesn't exist in the merged
+  ** working set yet (row-merge was skipped due to schema actions), so
+  ** UPDATE...WHERE rowid=? matches zero rows. pIns is an INSERT statement
+  ** that materializes the full row from their-side record bytes. azAllCols
+  ** / aiAllColIdx describe every column in their schema (record-field
+  ** index), in declared order, so we can bind values from the their-side
+  ** record into the INSERT. */
+  sqlite3_stmt *pIns;
+  int *aiAllColIdx;
+  int nAllCols;
 };
 
 char *extractColNameFromDef(const char *zDef);
@@ -223,5 +234,30 @@ static SQLITE_INLINE int doltliteAppendQuotedIdent(sqlite3_str *pStr,
   sqlite3_str_appendf(pStr, "\"%w\"", zName ? zName : "");
   return sqlite3_str_errcode(pStr);
 }
+
+static SQLITE_INLINE int doltliteGrowArrayImpl(
+  void **ppArr, int *pnAlloc, int nNeeded, int elemSize, int seed
+){
+  i64 nNew;
+  void *pNew;
+  if( nNeeded <= *pnAlloc ) return SQLITE_OK;
+  if( elemSize <= 0 || nNeeded < 0 || seed <= 0 ) return SQLITE_NOMEM;
+  nNew = *pnAlloc>0 ? (i64)*pnAlloc * 2 : (i64)seed;
+  while( nNew < (i64)nNeeded ){
+    if( nNew > (i64)0x7fffffff/2 ){ nNew = (i64)0x7fffffff; break; }
+    nNew *= 2;
+  }
+  if( nNew < (i64)nNeeded ) return SQLITE_NOMEM;
+  if( nNew > (i64)0x7fffffff/(i64)elemSize ) return SQLITE_NOMEM;
+  pNew = sqlite3_realloc(*ppArr, (int)(nNew * (i64)elemSize));
+  if( !pNew ) return SQLITE_NOMEM;
+  *ppArr = pNew;
+  *pnAlloc = (int)nNew;
+  return SQLITE_OK;
+}
+
+#define DOLTLITE_GROW_ARRAY(ppArr, pnAlloc, nNeeded, seed) \
+  doltliteGrowArrayImpl((void**)(ppArr), (pnAlloc), (nNeeded), \
+                        (int)sizeof(**(ppArr)), (seed))
 
 #endif

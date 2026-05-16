@@ -185,34 +185,44 @@ static int parseRecordFields(const u8 *pRec, int nRec,
                              RecField **ppFields, int *pnFields){
   const u8 *pPos, *pEnd, *pHdrEnd;
   u64 hdrSize;
-  int hdrBytes, nFields = 0, nAlloc = 0, bodyOff;
+  int hdrBytes, nFields = 0, nAlloc = 0;
+  i64 bodyOff;
   RecField *aFields = 0;
 
   if(!pRec || nRec<1) { *ppFields=0; *pnFields=0; return 0; }
   pPos = pRec; pEnd = pRec + nRec;
   hdrBytes = dlReadVarint(pPos, pEnd, &hdrSize);
+  if(hdrBytes<=0){ *ppFields=0; *pnFields=0; return -1; }
   pPos += hdrBytes;
+  if((u64)hdrBytes > hdrSize || hdrSize > (u64)nRec){
+    *ppFields=0; *pnFields=0; return -1;
+  }
   pHdrEnd = pRec + (int)hdrSize;
-  bodyOff = (int)hdrSize;
+  bodyOff = (i64)hdrSize;
 
   while(pPos < pHdrEnd && pPos < pEnd){
     u64 st; int stBytes, sz;
     stBytes = dlReadVarint(pPos, pHdrEnd, &st);
+    if(stBytes<=0){
+      sqlite3_free(aFields);
+      *ppFields=0; *pnFields=0;
+      return -1;
+    }
     pPos += stBytes;
     sz = dlSerialTypeLen(st);
+    if(sz < 0 || bodyOff + (i64)sz > (i64)nRec){
+      sqlite3_free(aFields);
+      *ppFields=0; *pnFields=0;
+      return -1;
+    }
 
-    if(nFields >= nAlloc){
-      RecField *aNew;
-      nAlloc = nAlloc ? nAlloc*2 : 16;
-      aNew = sqlite3_realloc(aFields, nAlloc*(int)sizeof(RecField));
-      if(!aNew){
-        sqlite3_free(aFields);
-        return -1;
-      }
-      aFields = aNew;
+    if( DOLTLITE_GROW_ARRAY(&aFields, &nAlloc, nFields+1, 16)!=SQLITE_OK ){
+      sqlite3_free(aFields);
+      *ppFields=0; *pnFields=0;
+      return -1;
     }
     aFields[nFields].st = st;
-    aFields[nFields].off = bodyOff;
+    aFields[nFields].off = (int)bodyOff;
     aFields[nFields].len = sz;
     nFields++;
     bodyOff += sz;
@@ -554,14 +564,9 @@ static int rowMergeCallback(void *pCtx, const ThreeWayChange *pChange){
     }
     case THREE_WAY_CONFLICT_DM: {
 
-      struct ConflictRow *aNew;
-      if( ctx->nConflicts >= ctx->nConflictsAlloc ){
-        int nNew = ctx->nConflictsAlloc ? ctx->nConflictsAlloc*2 : 16;
-        aNew = sqlite3_realloc(ctx->aConflicts, nNew*(int)sizeof(struct ConflictRow));
-        if( !aNew ) return SQLITE_NOMEM;
-        ctx->aConflicts = aNew;
-        ctx->nConflictsAlloc = nNew;
-      }
+      rc = DOLTLITE_GROW_ARRAY(&ctx->aConflicts, &ctx->nConflictsAlloc,
+                                ctx->nConflicts + 1, 16);
+      if( rc!=SQLITE_OK ) return rc;
       {
         struct ConflictRow *cr = &ctx->aConflicts[ctx->nConflicts];
         memset(cr, 0, sizeof(*cr));
@@ -938,21 +943,15 @@ static int parseColumns(
               return SQLITE_CORRUPT;
             }
 
-            if( nCols >= nAlloc ){
-              int nNew = nAlloc ? nAlloc*2 : 8;
-              ParsedColumn *aNew = sqlite3_realloc(aCols, nNew*(int)sizeof(ParsedColumn));
-              if( !aNew ){
-                sqlite3_free(zName);
-                sqlite3_free(zTrimmed);
-                { int ci; for(ci=0;ci<nCols;ci++){
-                  sqlite3_free(aCols[ci].zName);
-                  sqlite3_free(aCols[ci].zDef);
-                }}
-                sqlite3_free(aCols);
-                return SQLITE_NOMEM;
-              }
-              aCols = aNew;
-              nAlloc = nNew;
+            if( DOLTLITE_GROW_ARRAY(&aCols, &nAlloc, nCols+1, 8)!=SQLITE_OK ){
+              sqlite3_free(zName);
+              sqlite3_free(zTrimmed);
+              { int ci; for(ci=0;ci<nCols;ci++){
+                sqlite3_free(aCols[ci].zName);
+                sqlite3_free(aCols[ci].zDef);
+              }}
+              sqlite3_free(aCols);
+              return SQLITE_NOMEM;
             }
             aCols[nCols].zName = zName;
             aCols[nCols].zDef = zTrimmed;
@@ -1040,13 +1039,8 @@ static int trySchemaColumnMerge(
 
       }else{
 
-        if( nAdd >= nAddAlloc ){
-          int nNew = nAddAlloc ? nAddAlloc*2 : 4;
-          char **azNew = sqlite3_realloc(azAdd, nNew*(int)sizeof(char*));
-          if( !azNew ){ rc = SQLITE_NOMEM; goto schema_merge_cleanup; }
-          azAdd = azNew;
-          nAddAlloc = nNew;
-        }
+        rc = DOLTLITE_GROW_ARRAY(&azAdd, &nAddAlloc, nAdd+1, 4);
+        if( rc!=SQLITE_OK ) goto schema_merge_cleanup;
         azAdd[nAdd] = sqlite3_mprintf("%s", aTheirs[i].zDef);
         nAdd++;
       }
@@ -1169,6 +1163,7 @@ static void freeConflictRows(struct ConflictRow *aRows, int nRows){
   for(i=0; i<nRows; i++){
     sqlite3_free(aRows[i].pKey);
     sqlite3_free(aRows[i].pBaseVal);
+    sqlite3_free(aRows[i].pOurVal);
     sqlite3_free(aRows[i].pTheirVal);
   }
   sqlite3_free(aRows);
@@ -2275,14 +2270,16 @@ static int mergeCatalogPass2(
         if( conflict || forceRemap ){
           SchemaRootpageRemap *aNew;
           int nOld = *pnRemap;
-          newEntry.iTable = (*piNextMerged)++;
+          Pgno newPg = *piNextMerged;
           aNew = sqlite3_realloc(*ppaRemap,
                                  (nOld+1)*(int)sizeof(SchemaRootpageRemap));
           if( !aNew ) return SQLITE_NOMEM;
           *ppaRemap = aNew;
           aNew[nOld].oldPg = oldPg;
-          aNew[nOld].newPg = newEntry.iTable;
+          aNew[nOld].newPg = newPg;
           *pnRemap = nOld + 1;
+          newEntry.iTable = newPg;
+          (*piNextMerged)++;
         }
         if( newEntry.iTable >= *piNextMerged ) *piNextMerged = newEntry.iTable + 1;
         aMerged[(*pnMerged)++] = newEntry;
@@ -2295,15 +2292,17 @@ static int mergeCatalogPass2(
           struct TableEntry newEntry = aTheirs[i];
           SchemaRootpageRemap *aNew;
           int nOld = *pnRemap;
-          newEntry.iTable = (*piNextMerged)++;
-          aMerged[(*pnMerged)++] = newEntry;
+          Pgno newPg = *piNextMerged;
           aNew = sqlite3_realloc(*ppaRemap,
                                  (nOld+1)*(int)sizeof(SchemaRootpageRemap));
           if( !aNew ) return SQLITE_NOMEM;
           *ppaRemap = aNew;
           aNew[nOld].oldPg = aTheirs[i].iTable;
-          aNew[nOld].newPg = newEntry.iTable;
+          aNew[nOld].newPg = newPg;
           *pnRemap = nOld + 1;
+          newEntry.iTable = newPg;
+          (*piNextMerged)++;
+          aMerged[(*pnMerged)++] = newEntry;
         }
       }
       continue;

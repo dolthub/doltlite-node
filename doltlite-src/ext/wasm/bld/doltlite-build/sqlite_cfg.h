@@ -6,7 +6,7 @@
 #define HAVE_DLFCN_H 1
 #define HAVE_DLOPEN 1
 /* #undef HAVE_EDITLINE */
-/* #undef HAVE_EMSDK */
+#define HAVE_EMSDK 1
 #define HAVE_FDATASYNC 1
 #define HAVE_GMTIME_R 1
 #define HAVE_INT16_T 1
@@ -38,7 +38,7 @@
 #define HAVE_SYS_STAT_H 1
 #define HAVE_SYS_TIME_H 1
 #define HAVE_SYS_TYPES_H 1
-#define HAVE_TCL 1
+/* #undef HAVE_TCL */
 #define HAVE_UINT16_T 1
 #define HAVE_UINT32_T 1
 #define HAVE_UINT64_T 1

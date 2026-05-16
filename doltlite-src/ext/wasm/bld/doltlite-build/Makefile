@@ -187,7 +187,7 @@ T.lib = .a
 # extension library (libtclsqlite3.so) and related testing apps are
 # built.
 #
-HAVE_TCL = 1
+HAVE_TCL = 0
 
 #
 # $(TCLSH_CMD) is the command to use for tclsh - normally just
@@ -195,7 +195,7 @@ HAVE_TCL = 1
 # must point to a canonical TCL interpreter, not JimTCL.
 #
 TCLSH_CMD = /usr/bin/tclsh8.6
-TCL_CONFIG_SH = /usr/lib/x86_64-linux-gnu/tclConfig.sh
+TCL_CONFIG_SH = 
 
 #
 # TCL config info from tclConfig.sh
@@ -205,15 +205,15 @@ TCL_CONFIG_SH = /usr/lib/x86_64-linux-gnu/tclConfig.sh
 # block is retained in case we decide that we do indeed need to export
 # it at configure-time instead of calculate it at make-time.
 #
-#TCL_INCLUDE_SPEC = -I/usr/include/tcl8.6
-#TCL_LIB_SPEC = -L/usr/lib/x86_64-linux-gnu -ltcl8.6
-#TCL_STUB_LIB_SPEC = -L/usr/lib/x86_64-linux-gnu -ltclstub8.6
-#TCL_EXEC_PREFIX = /usr
-#TCL_VERSION = 8.6
-TCL_MAJOR_VERSION = 8
+#TCL_INCLUDE_SPEC = 
+#TCL_LIB_SPEC = 
+#TCL_STUB_LIB_SPEC = 
+#TCL_EXEC_PREFIX = 
+#TCL_VERSION = 
+TCL_MAJOR_VERSION = 
 # ^^^ main.mk optionally uses this for determining the Tcl extension's
 # DLL name.
-TCL_EXT_DLL_BASENAME = libsqlite
+TCL_EXT_DLL_BASENAME = 
 # ^^^ base name of the Tcl extension DLL. It varies by platform and
 # Tcl version.
 
@@ -224,7 +224,7 @@ TCL_EXT_DLL_BASENAME = libsqlite
 # clients are not required to pass it at make-time, or may set it in
 # their environment to override it.
 #
-TCLLIBDIR = /usr/share/tcltk/tcl8.6/sqlite3.54.0
+TCLLIBDIR = 
 
 #
 # Additional options when running tests using testrunner.tcl
@@ -299,7 +299,7 @@ sqlite_cfg.h: $(AS_AUTO_DEF)
 # Achtung: though _this_ makefile is POSIX-make compatible, the fiddle
 # build requires GNU make.
 #
-EMCC_WRAPPER = 
+EMCC_WRAPPER = /home/runner/work/doltlite/doltlite/tool/emcc.sh
 fiddle: sqlite3.c shell.c
 	@if [ x = "x$(EMCC_WRAPPER)" ]; then \
 		echo "Emscripten SDK not found by configure. Cannot build fiddle." 1&>2; \

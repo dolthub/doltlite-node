@@ -33,22 +33,9 @@ struct HttpRemote {
 
   u8 *pPendingRefs;
   int nPendingRefs;
+  ProllyHash expectedRefsHash;
+  u8 hasExpectedRefsHash;
 };
-
-static int writeAll(int fd, const void *pBuf, int nBuf){
-  int nWritten = 0;
-  const u8 *p = (const u8*)pBuf;
-  while( nWritten < nBuf ){
-    ssize_t n = write(fd, p + nWritten, nBuf - nWritten);
-    if( n < 0 ){
-      if( errno==EINTR ) continue;
-      return SQLITE_IOERR_WRITE;
-    }
-    if( n == 0 ) return SQLITE_IOERR_WRITE;
-    nWritten += (int)n;
-  }
-  return SQLITE_OK;
-}
 
 static void hashToHex(const ProllyHash *pHash, char *zOut){
   static const char hex[] = "0123456789abcdef";
@@ -60,35 +47,43 @@ static void hashToHex(const ProllyHash *pHash, char *zOut){
   zOut[PROLLY_HASH_SIZE*2] = 0;
 }
 
+#define HTTP_RESP_MAX_BYTES ((i64)128 * 1024 * 1024)
+
 static int readUntilEof(int fd, u8 **ppOut, int *pnOut){
-  int nAlloc = 4096;
-  int nUsed = 0;
-  u8 *pBuf = sqlite3_malloc(nAlloc);
+  i64 nAlloc = 4096;
+  i64 nUsed = 0;
+  u8 *pBuf = sqlite3_malloc64(nAlloc);
   if( !pBuf ) return SQLITE_NOMEM;
 
   for(;;){
     ssize_t n;
     if( nUsed + 1024 > nAlloc ){
       u8 *pNew;
-      nAlloc *= 2;
-      pNew = sqlite3_realloc(pBuf, nAlloc);
+      i64 nNew = nAlloc * 2;
+      if( nNew > HTTP_RESP_MAX_BYTES ) nNew = HTTP_RESP_MAX_BYTES;
+      if( nNew <= nAlloc ){
+        sqlite3_free(pBuf);
+        return SQLITE_TOOBIG;
+      }
+      pNew = sqlite3_realloc64(pBuf, nNew);
       if( !pNew ){
         sqlite3_free(pBuf);
         return SQLITE_NOMEM;
       }
       pBuf = pNew;
+      nAlloc = nNew;
     }
-    n = read(fd, pBuf + nUsed, nAlloc - nUsed);
+    n = read(fd, pBuf + nUsed, (size_t)(nAlloc - nUsed));
     if( n < 0 ){
       sqlite3_free(pBuf);
       return SQLITE_IOERR;
     }
     if( n == 0 ) break;
-    nUsed += (int)n;
+    nUsed += (i64)n;
   }
 
   *ppOut = pBuf;
-  *pnOut = nUsed;
+  *pnOut = (int)nUsed;
   return SQLITE_OK;
 }
 
@@ -114,7 +109,9 @@ static int httpRequest(
   *pnResp = 0;
 
   he = gethostbyname(zHost);
-  if( !he ) return SQLITE_ERROR;
+  if( !he || he->h_addrtype != AF_INET || !he->h_addr_list[0] ){
+    return SQLITE_ERROR;
+  }
 
   fd = socket(AF_INET, SOCK_STREAM, 0);
   if( fd < 0 ) return SQLITE_ERROR;
@@ -122,7 +119,11 @@ static int httpRequest(
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
   addr.sin_port = htons((u16)port);
-  memcpy(&addr.sin_addr, he->h_addr_list[0], (size_t)he->h_length);
+  {
+    size_t nCopy = (size_t)he->h_length;
+    if( nCopy > sizeof(addr.sin_addr) ) nCopy = sizeof(addr.sin_addr);
+    memcpy(&addr.sin_addr, he->h_addr_list[0], nCopy);
+  }
 
   if( connect(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0 ){
     close(fd);
@@ -147,10 +148,15 @@ static int httpRequest(
       zMethod, zPath, zHost);
   }
 
-  rc = writeAll(fd, aReqHdr, nReqHdr);
+  if( nReqHdr < 0 || nReqHdr >= (int)sizeof(aReqHdr) ){
+    close(fd);
+    return SQLITE_TOOBIG;
+  }
+
+  rc = doltliteWriteAll(fd, aReqHdr, nReqHdr);
   if( rc != SQLITE_OK ){ close(fd); return rc; }
   if( pBody && nBody > 0 ){
-    rc = writeAll(fd, pBody, nBody);
+    rc = doltliteWriteAll(fd, pBody, nBody);
     if( rc != SQLITE_OK ){ close(fd); return rc; }
   }
 
@@ -406,6 +412,7 @@ static int httpSetRefs(DoltliteRemote *pRemote, const u8 *pData, int nData){
   sqlite3_free(p->pPendingRefs);
   p->pPendingRefs = 0;
   p->nPendingRefs = 0;
+  p->hasExpectedRefsHash = 0;
 
   if( pData && nData > 0 ){
     p->pPendingRefs = sqlite3_malloc(nData);
@@ -413,6 +420,24 @@ static int httpSetRefs(DoltliteRemote *pRemote, const u8 *pData, int nData){
     memcpy(p->pPendingRefs, pData, nData);
     p->nPendingRefs = nData;
   }
+  return SQLITE_OK;
+}
+
+static int httpSetRefsIf(
+  DoltliteRemote *pRemote,
+  const ProllyHash *pExpectedRefsHash,
+  const u8 *pData,
+  int nData
+){
+  HttpRemote *p = (HttpRemote*)pRemote;
+  int rc = httpSetRefs(pRemote, pData, nData);
+  if( rc!=SQLITE_OK ) return rc;
+  if( pExpectedRefsHash ){
+    memcpy(&p->expectedRefsHash, pExpectedRefsHash, sizeof(ProllyHash));
+  }else{
+    memset(&p->expectedRefsHash, 0, sizeof(ProllyHash));
+  }
+  p->hasExpectedRefsHash = 1;
   return SQLITE_OK;
 }
 
@@ -439,15 +464,30 @@ static int httpCommit(DoltliteRemote *pRemote){
 
   if( p->pPendingRefs && p->nPendingRefs > 0 ){
     pResp = 0; nResp = 0; status = 0;
-    zPath = buildPath(p, "/refs");
+    zPath = buildPath(p, p->hasExpectedRefsHash ? "/refs-if" : "/refs");
     if( !zPath ) return SQLITE_NOMEM;
 
-    rc = httpRequest(p->zHost, p->port, "PUT", zPath,
-                     p->pPendingRefs, p->nPendingRefs,
-                     &status, &pResp, &nResp);
+    if( p->hasExpectedRefsHash ){
+      u8 *pReq = sqlite3_malloc(PROLLY_HASH_SIZE + p->nPendingRefs);
+      if( !pReq ){
+        sqlite3_free(zPath);
+        return SQLITE_NOMEM;
+      }
+      memcpy(pReq, p->expectedRefsHash.data, PROLLY_HASH_SIZE);
+      memcpy(pReq + PROLLY_HASH_SIZE, p->pPendingRefs, p->nPendingRefs);
+      rc = httpRequest(p->zHost, p->port, "PUT", zPath,
+                       pReq, PROLLY_HASH_SIZE + p->nPendingRefs,
+                       &status, &pResp, &nResp);
+      sqlite3_free(pReq);
+    }else{
+      rc = httpRequest(p->zHost, p->port, "PUT", zPath,
+                       p->pPendingRefs, p->nPendingRefs,
+                       &status, &pResp, &nResp);
+    }
     sqlite3_free(zPath);
     sqlite3_free(pResp);
     if( rc != SQLITE_OK ) return rc;
+    if( status == 409 ) return SQLITE_BUSY;
     if( status != 200 && status != 204 ) return SQLITE_ERROR;
   }
 
@@ -468,6 +508,7 @@ static int httpCommit(DoltliteRemote *pRemote){
   p->pUploadBuf = 0;
   p->nUploadBuf = 0;
   p->nUploadBufAlloc = 0;
+  p->hasExpectedRefsHash = 0;
 
   sqlite3_free(p->pPendingRefs);
   p->pPendingRefs = 0;
@@ -566,6 +607,7 @@ DoltliteRemote *doltliteHttpRemoteOpen(const char *zUrl){
   p->base.xHasChunks = httpHasChunks;
   p->base.xGetRefs = httpGetRefs;
   p->base.xSetRefs = httpSetRefs;
+  p->base.xSetRefsIf = httpSetRefsIf;
   p->base.xCommit = httpCommit;
   p->base.xClose = httpClose;
 

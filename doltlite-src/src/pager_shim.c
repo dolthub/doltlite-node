@@ -167,7 +167,17 @@ static sqlite3_file *pagerShimDummyFile(void){
 }
 
 static sqlite3_file *shimPagerFile(Pager *p){
-  return SHIM(p)->pFd;
+  PagerShim *s = SHIM(p);
+  /* When the shim is bound to a chunk store, resolve through the store so
+  ** the file handle returned reflects the current cs->pFile rather than a
+  ** stale snapshot from shim creation. This is critical when another
+  ** actor (concurrent connection, peer process, or gc) replaces the
+  ** chunk store's file handle via csReloadFromDisk or gcRewriteFile. */
+  if( s->pStore ){
+    sqlite3_file *pCurrent = chunkFileGetHandle(&((ChunkStore*)s->pStore)->file);
+    if( pCurrent ) return pCurrent;
+  }
+  return s->pFd;
 }
 static const char *shimPagerFilename(const Pager *p, int fmt){
   (void)fmt;
@@ -502,6 +512,11 @@ void pagerShimDestroy(PagerShim *pShim){
   sqlite3_free(pShim);
 }
 
+void pagerShimSetStore(PagerShim *pShim, struct ChunkStore *pStore){
+  if( pShim==0 ) return;
+  pShim->pStore = pStore;
+}
+
 sqlite3_file *sqlite3PagerFile(Pager *pPager){
   return getPagerOps(pPager)->xFile(pPager);
 }
@@ -828,9 +843,9 @@ sqlite3_backup *sqlite3_backup_init(sqlite3 *pDest, const char *zDestDb,
 
   srcCs = doltliteGetChunkStore(pSrc);
   destCs = doltliteGetChunkStore(pDest);
-  if( !srcCs || !srcCs->zFilename ) return 0;
+  if( !srcCs || !chunkFileGetFilename(&srcCs->file) ) return 0;
   if( srcCs->isMemory ) return 0;
-  if( !destCs || !destCs->zFilename ) return 0;
+  if( !destCs || !chunkFileGetFilename(&destCs->file) ) return 0;
 
   p = (DoltliteBackup*)sqlite3_malloc(sizeof(DoltliteBackup));
   if( !p ) return 0;
@@ -838,9 +853,9 @@ sqlite3_backup *sqlite3_backup_init(sqlite3 *pDest, const char *zDestDb,
 
   p->pSrcDb = pSrc;
   p->pDestDb = pDest;
-  p->pVfs = srcCs->pVfs;
-  p->zSrcFile = sqlite3_mprintf("%s", srcCs->zFilename);
-  p->zDestFile = sqlite3_mprintf("%s", destCs->zFilename);
+  p->pVfs = chunkFileGetVfs(&srcCs->file);
+  p->zSrcFile = sqlite3_mprintf("%s", chunkFileGetFilename(&srcCs->file));
+  p->zDestFile = sqlite3_mprintf("%s", chunkFileGetFilename(&destCs->file));
   if( !p->zSrcFile || !p->zDestFile ){
     sqlite3_free(p->zSrcFile);
     sqlite3_free(p->zDestFile);

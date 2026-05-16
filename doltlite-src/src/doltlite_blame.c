@@ -211,13 +211,8 @@ static int blameCollectLiveRows(
     int nKey = 0, nVal = 0;
     BlameRow *r;
 
-    if( pCur->nRows >= pCur->nAlloc ){
-      int nNew = pCur->nAlloc ? pCur->nAlloc*2 : 64;
-      BlameRow *aNew = sqlite3_realloc(pCur->aRows, nNew*(int)sizeof(BlameRow));
-      if( !aNew ){ prollyCursorClose(&cur); return SQLITE_NOMEM; }
-      pCur->aRows = aNew;
-      pCur->nAlloc = nNew;
-    }
+    rc = DOLTLITE_GROW_ARRAY(&pCur->aRows, &pCur->nAlloc, pCur->nRows + 1, 64);
+    if( rc!=SQLITE_OK ){ prollyCursorClose(&cur); return rc; }
     r = &pCur->aRows[pCur->nRows];
     memset(r, 0, sizeof(*r));
 
@@ -282,6 +277,34 @@ static int blameSeekRowInTree(
   prollyCursorValue(&cur, ppVal, pnVal);
   prollyCursorClose(&cur);
   return SQLITE_OK;
+}
+
+static int blameBlobKeyCmp(
+  const u8 *pA, int nA,
+  const u8 *pB, int nB
+){
+  int n = (nA < nB) ? nA : nB;
+  int c = memcmp(pA, pB, n);
+  if( c ) return c;
+  return nA - nB;
+}
+
+static int blameCursorCompareRowKey(
+  ProllyCursor *pRefCur,
+  u8 flags,
+  const BlameRow *pRow
+){
+  if( flags & PROLLY_NODE_INTKEY ){
+    i64 refKey = prollyCursorIntKey(pRefCur);
+    if( refKey < pRow->intKey ) return -1;
+    if( refKey > pRow->intKey ) return 1;
+    return 0;
+  }else{
+    const u8 *pRefKey = 0;
+    int nRefKey = 0;
+    prollyCursorKey(pRefCur, &pRefKey, &nRefKey);
+    return blameBlobKeyCmp(pRefKey, nRefKey, pRow->pKey, pRow->nKey);
+  }
 }
 
 static int blameRowValueEqual(const u8 *pA, int nA, const u8 *pB, int nB){
@@ -353,10 +376,15 @@ static int blameCompareAgainstRef(
 ){
   ChunkStore *cs = doltliteGetChunkStore(db);
   ProllyCache *pCache = doltliteGetCache(db);
+  ProllyCursor refCur;
   ProllyHash refRoot;
   u8 refFlags = 0;
   int haveRef = 0;
-  int rc, i;
+  int refCurOpen = 0;
+  int refCurValid = 0;
+  int canScanRef = 0;
+  int rc = SQLITE_OK;
+  int i;
 
   (void)pCurRoot;
 
@@ -366,6 +394,18 @@ static int blameCompareAgainstRef(
     else if( rc!=SQLITE_NOTFOUND ) return rc;
   }
 
+  canScanRef = haveRef
+      && !prollyHashIsEmpty(&refRoot)
+      && ((refFlags & PROLLY_NODE_INTKEY)==(curFlags & PROLLY_NODE_INTKEY));
+  if( canScanRef ){
+    int res = 0;
+    prollyCursorInit(&refCur, cs, pCache, &refRoot, refFlags);
+    refCurOpen = 1;
+    rc = prollyCursorFirst(&refCur, &res);
+    if( rc!=SQLITE_OK ) goto blame_compare_done;
+    refCurValid = (res==0);
+  }
+
   for(i=0; i<pCur->nRows; i++){
     BlameRow *r = &pCur->aRows[i];
     const u8 *pRefVal = 0;
@@ -373,17 +413,35 @@ static int blameCompareAgainstRef(
     if( r->blamed ) continue;
 
     if( haveRef ){
-      rc = blameSeekRowInTree(cs, pCache, &refRoot, refFlags, r, &pRefVal, &nRefVal);
-      if( rc!=SQLITE_OK ) return rc;
+      if( canScanRef ){
+        int cmp = 1;
+        while( refCurValid ){
+          cmp = blameCursorCompareRowKey(&refCur, refFlags, r);
+          if( cmp>=0 ) break;
+          rc = prollyCursorNext(&refCur);
+          if( rc!=SQLITE_OK ) goto blame_compare_done;
+          refCurValid = prollyCursorIsValid(&refCur);
+        }
+        if( refCurValid && cmp==0 ){
+          prollyCursorValue(&refCur, &pRefVal, &nRefVal);
+        }
+      }else{
+        rc = blameSeekRowInTree(cs, pCache, &refRoot, refFlags, r,
+                                &pRefVal, &nRefVal);
+        if( rc!=SQLITE_OK ) goto blame_compare_done;
+      }
     }
 
     if( !blameRowValueEqual(r->pCurVal, r->nCurVal, pRefVal, nRefVal) ){
       rc = blameAssign(r, pCommitHash, pCommit);
-      if( rc!=SQLITE_OK ) return rc;
+      if( rc!=SQLITE_OK ) goto blame_compare_done;
       pCur->nUnresolved--;
     }
   }
-  return SQLITE_OK;
+
+blame_compare_done:
+  if( refCurOpen ) prollyCursorClose(&refCur);
+  return rc;
 }
 
 static int blameUnresolvedCount(BlameCursor *pCur){

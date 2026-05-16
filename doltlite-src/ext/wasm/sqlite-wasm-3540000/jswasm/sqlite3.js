@@ -31,15 +31,15 @@
 ** SQLITE_VERSION_NUMBER 3054000
 ** SQLITE_SOURCE_ID "2026-05-04 18:36:04 b6ad35096d48de29fd8da498ac23cd7eba9194a70cad05ec49c318f11fe7alt1"
 **
-** Emscripten SDK: 3.1.6
+** Emscripten SDK: 3.1.74
 */
 
 var sqlite3InitModule = (() => {
-  var _scriptDir = typeof document !== 'undefined' && document.currentScript ? document.currentScript.src : undefined;
+  var _scriptName = typeof document != 'undefined' ? document.currentScript?.src : undefined;
   
   return (
-function(sqlite3InitModule) {
-  sqlite3InitModule = sqlite3InitModule || {};
+function(moduleArg = {}) {
+  var moduleRtn;
 
 
 
@@ -55,15 +55,26 @@ function(sqlite3InitModule) {
 
 
 
-
-var Module = typeof sqlite3InitModule != 'undefined' ? sqlite3InitModule : {};
+var Module = moduleArg;
 
 
 var readyPromiseResolve, readyPromiseReject;
-Module['ready'] = new Promise(function(resolve, reject) {
+var readyPromise = new Promise((resolve, reject) => {
   readyPromiseResolve = resolve;
   readyPromiseReject = reject;
 });
+
+
+
+
+
+var ENVIRONMENT_IS_WEB = typeof window == 'object';
+var ENVIRONMENT_IS_WORKER = typeof WorkerGlobalScope != 'undefined';
+
+
+var ENVIRONMENT_IS_NODE = typeof process == 'object' && typeof process.versions == 'object' && typeof process.versions.node == 'string' && process.type != 'renderer';
+var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIRONMENT_IS_WORKER;
+
 
 
 
@@ -148,6 +159,7 @@ Module['ready'] = new Promise(function(resolve, reject) {
 
 
 
+
 var moduleOverrides = Object.assign({}, Module);
 
 var arguments_ = [];
@@ -155,17 +167,6 @@ var thisProgram = './this.program';
 var quit_ = (status, toThrow) => {
   throw toThrow;
 };
-
-
-
-
-
-var ENVIRONMENT_IS_WEB = typeof window == 'object';
-var ENVIRONMENT_IS_WORKER = typeof importScripts == 'function';
-
-
-var ENVIRONMENT_IS_NODE = typeof process == 'object' && typeof process.versions == 'object' && typeof process.versions.node == 'string';
-var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIRONMENT_IS_WORKER;
 
 
 var scriptDirectory = '';
@@ -177,10 +178,7 @@ function locateFile(path) {
 }
 
 
-var read_,
-    readAsync,
-    readBinary,
-    setWindowTitle;
+var readAsync, readBinary;
 
 
 
@@ -193,8 +191,8 @@ if (ENVIRONMENT_IS_WEB || ENVIRONMENT_IS_WORKER) {
   }
   
   
-  if (_scriptDir) {
-    scriptDirectory = _scriptDir;
+  if (_scriptName) {
+    scriptDirectory = _scriptName;
   }
   
   
@@ -202,60 +200,39 @@ if (ENVIRONMENT_IS_WEB || ENVIRONMENT_IS_WORKER) {
   
   
   
-  if (scriptDirectory.indexOf('blob:') !== 0) {
-    scriptDirectory = scriptDirectory.substr(0, scriptDirectory.replace(/[?#].*/, "").lastIndexOf('/')+1);
-  } else {
+  if (scriptDirectory.startsWith('blob:')) {
     scriptDirectory = '';
+  } else {
+    scriptDirectory = scriptDirectory.substr(0, scriptDirectory.replace(/[?#].*/, '').lastIndexOf('/')+1);
   }
 
-  
-  
   {
 
-
-
-  read_ = (url) => {
+if (ENVIRONMENT_IS_WORKER) {
+    readBinary = (url) => {
       var xhr = new XMLHttpRequest();
       xhr.open('GET', url, false);
+      xhr.responseType = 'arraybuffer';
       xhr.send(null);
-      return xhr.responseText;
-  }
-
-  if (ENVIRONMENT_IS_WORKER) {
-    readBinary = (url) => {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', url, false);
-        xhr.responseType = 'arraybuffer';
-        xhr.send(null);
-        return new Uint8Array((xhr.response));
+      return new Uint8Array((xhr.response));
     };
   }
 
-  readAsync = (url, onload, onerror) => {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
-    xhr.responseType = 'arraybuffer';
-    xhr.onload = () => {
-      if (xhr.status == 200 || (xhr.status == 0 && xhr.response)) { 
-        onload(xhr.response);
-        return;
-      }
-      onerror();
-    };
-    xhr.onerror = onerror;
-    xhr.send(null);
-  }
-
+  readAsync = async (url) => {
+    var response = await fetch(url, { credentials: 'same-origin' });
+    if (response.ok) {
+      return response.arrayBuffer();
+    }
+    throw new Error(response.status + ' : ' + response.url);
+  };
 
   }
-
-  setWindowTitle = (title) => document.title = title;
 } else
 {
 }
 
 var out = Module['print'] || console.log.bind(console);
-var err = Module['printErr'] || console.warn.bind(console);
+var err = Module['printErr'] || console.error.bind(console);
 
 
 Object.assign(Module, moduleOverrides);
@@ -272,270 +249,21 @@ if (Module['arguments']) arguments_ = Module['arguments'];
 
 if (Module['thisProgram']) thisProgram = Module['thisProgram'];
 
-if (Module['quit']) quit_ = Module['quit'];
 
 
 
 
 
 
-var STACK_ALIGN = 16;
-var POINTER_SIZE = 4;
 
-function getNativeTypeSize(type) {
-  switch (type) {
-    case 'i1': case 'i8': return 1;
-    case 'i16': return 2;
-    case 'i32': return 4;
-    case 'i64': return 8;
-    case 'float': return 4;
-    case 'double': return 8;
-    default: {
-      if (type[type.length - 1] === '*') {
-        return POINTER_SIZE;
-      } else if (type[0] === 'i') {
-        const bits = Number(type.substr(1));
-        assert(bits % 8 === 0, 'getNativeTypeSize invalid bits ' + bits + ', type ' + type);
-        return bits / 8;
-      } else {
-        return 0;
-      }
-    }
-  }
-}
 
-function warnOnce(text) {
-  if (!warnOnce.shown) warnOnce.shown = {};
-  if (!warnOnce.shown[text]) {
-    warnOnce.shown[text] = 1;
-    err(text);
-  }
-}
 
 
 
 
 
-function convertJsFunctionToWasm(func, sig) {
 
-  
-  
-  
-  
-  if (typeof WebAssembly.Function == "function") {
-    var typeNames = {
-      'i': 'i32',
-      'j': 'i64',
-      'f': 'f32',
-      'd': 'f64'
-    };
-    var type = {
-      parameters: [],
-      results: sig[0] == 'v' ? [] : [typeNames[sig[0]]]
-    };
-    for (var i = 1; i < sig.length; ++i) {
-      type.parameters.push(typeNames[sig[i]]);
-    }
-    return new WebAssembly.Function(type, func);
-  }
-
-  
-  
-  var typeSection = [
-    0x01, 
-    0x00, 
-    0x01, 
-    0x60, 
-  ];
-  var sigRet = sig.slice(0, 1);
-  var sigParam = sig.slice(1);
-  var typeCodes = {
-    'i': 0x7f, 
-    'j': 0x7e, 
-    'f': 0x7d, 
-    'd': 0x7c, 
-  };
-
-  
-  typeSection.push(sigParam.length);
-  for (var i = 0; i < sigParam.length; ++i) {
-    typeSection.push(typeCodes[sigParam[i]]);
-  }
-
-  
-  
-  if (sigRet == 'v') {
-    typeSection.push(0x00);
-  } else {
-    typeSection = typeSection.concat([0x01, typeCodes[sigRet]]);
-  }
-
-  
-  
-  typeSection[1] = typeSection.length - 2;
-
-  
-  var bytes = new Uint8Array([
-    0x00, 0x61, 0x73, 0x6d, 
-    0x01, 0x00, 0x00, 0x00, 
-  ].concat(typeSection, [
-    0x02, 0x07, 
-      
-      0x01, 0x01, 0x65, 0x01, 0x66, 0x00, 0x00,
-    0x07, 0x05, 
-      
-      0x01, 0x01, 0x66, 0x00, 0x00,
-  ]));
-
-   
-  
-  var module = new WebAssembly.Module(bytes);
-  var instance = new WebAssembly.Instance(module, {
-    'e': {
-      'f': func
-    }
-  });
-  var wrappedFunc = instance.exports['f'];
-  return wrappedFunc;
-}
-
-var freeTableIndexes = [];
-
-
-var functionsInTableMap;
-
-function getEmptyTableSlot() {
-  
-  if (freeTableIndexes.length) {
-    return freeTableIndexes.pop();
-  }
-  
-  try {
-    wasmTable.grow(1);
-  } catch (err) {
-    if (!(err instanceof RangeError)) {
-      throw err;
-    }
-    throw 'Unable to grow wasm table. Set ALLOW_TABLE_GROWTH.';
-  }
-  return wasmTable.length - 1;
-}
-
-function updateTableMap(offset, count) {
-  for (var i = offset; i < offset + count; i++) {
-    var item = getWasmTableEntry(i);
-    
-    if (item) {
-      functionsInTableMap.set(item, i);
-    }
-  }
-}
-
-
-function addFunction(func, sig) {
-
-  
-  
-  if (!functionsInTableMap) {
-    functionsInTableMap = new WeakMap();
-    updateTableMap(0, wasmTable.length);
-  }
-  if (functionsInTableMap.has(func)) {
-    return functionsInTableMap.get(func);
-  }
-
-  
-
-  var ret = getEmptyTableSlot();
-
-  
-  try {
-    
-    setWasmTableEntry(ret, func);
-  } catch (err) {
-    if (!(err instanceof TypeError)) {
-      throw err;
-    }
-    var wrapped = convertJsFunctionToWasm(func, sig);
-    setWasmTableEntry(ret, wrapped);
-  }
-
-  functionsInTableMap.set(func, ret);
-
-  return ret;
-}
-
-function removeFunction(index) {
-  functionsInTableMap.delete(getWasmTableEntry(index));
-  freeTableIndexes.push(index);
-}
-
-
-
-
-
-
-var tempRet0 = 0;
-var setTempRet0 = (value) => { tempRet0 = value; };
-var getTempRet0 = () => tempRet0;
-
-
-
-
-
-
-
-
-
-
-
-
-
-var wasmBinary;
-if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
-var noExitRuntime = Module['noExitRuntime'] || true;
-
-if (typeof WebAssembly != 'object') {
-  abort('no native wasm support detected');
-}
-
-
-
-
-
-
-
-
-function setValue(ptr, value, type = 'i8', noSafe) {
-  if (type.charAt(type.length-1) === '*') type = 'i32';
-    switch (type) {
-      case 'i1': HEAP8[((ptr)>>0)] = value; break;
-      case 'i8': HEAP8[((ptr)>>0)] = value; break;
-      case 'i16': HEAP16[((ptr)>>1)] = value; break;
-      case 'i32': HEAP32[((ptr)>>2)] = value; break;
-      case 'i64': HEAP64[((ptr)>>3)] = BigInt(value); break;
-      case 'float': HEAPF32[((ptr)>>2)] = value; break;
-      case 'double': HEAPF64[((ptr)>>3)] = value; break;
-      default: abort('invalid type for setValue: ' + type);
-    }
-}
-
-
-function getValue(ptr, type = 'i8', noSafe) {
-  if (type.charAt(type.length-1) === '*') type = 'i32';
-    switch (type) {
-      case 'i1': return HEAP8[((ptr)>>0)];
-      case 'i8': return HEAP8[((ptr)>>0)];
-      case 'i16': return HEAP16[((ptr)>>1)];
-      case 'i32': return HEAP32[((ptr)>>2)];
-      case 'i64': return Number(HEAP64[((ptr)>>3)]);
-      case 'float': return HEAPF32[((ptr)>>2)];
-      case 'double': return Number(HEAPF64[((ptr)>>3)]);
-      default: abort('invalid type for getValue: ' + type);
-    }
-  return null;
-}
-
+var wasmBinary = Module['wasmBinary'];
 
 
 
@@ -555,6 +283,10 @@ var ABORT = false;
 var EXITSTATUS;
 
 
+
+
+
+
 function assert(condition, text) {
   if (!condition) {
     
@@ -565,472 +297,8 @@ function assert(condition, text) {
 }
 
 
-function getCFunc(ident) {
-  var func = Module['_' + ident]; 
-  return func;
-}
-
-
-
-function ccall(ident, returnType, argTypes, args, opts) {
-  
-  var toC = {
-    'string': function(str) {
-      var ret = 0;
-      if (str !== null && str !== undefined && str !== 0) { 
-        
-        var len = (str.length << 2) + 1;
-        ret = stackAlloc(len);
-        stringToUTF8(str, ret, len);
-      }
-      return ret;
-    },
-    'array': function(arr) {
-      var ret = stackAlloc(arr.length);
-      writeArrayToMemory(arr, ret);
-      return ret;
-    }
-  };
-
-  function convertReturnValue(ret) {
-    if (returnType === 'string') return UTF8ToString(ret);
-    if (returnType === 'boolean') return Boolean(ret);
-    return ret;
-  }
-
-  var func = getCFunc(ident);
-  var cArgs = [];
-  var stack = 0;
-  if (args) {
-    for (var i = 0; i < args.length; i++) {
-      var converter = toC[argTypes[i]];
-      if (converter) {
-        if (stack === 0) stack = stackSave();
-        cArgs[i] = converter(args[i]);
-      } else {
-        cArgs[i] = args[i];
-      }
-    }
-  }
-  var ret = func.apply(null, cArgs);
-  function onDone(ret) {
-    if (stack !== 0) stackRestore(stack);
-    return convertReturnValue(ret);
-  }
-
-  ret = onDone(ret);
-  return ret;
-}
-
-
-function cwrap(ident, returnType, argTypes, opts) {
-  argTypes = argTypes || [];
-  
-  
-  var numericArgs = argTypes.every(function(type){ return type === 'number'});
-  var numericRet = returnType !== 'string';
-  if (numericRet && numericArgs && !opts) {
-    return getCFunc(ident);
-  }
-  return function() {
-    return ccall(ident, returnType, argTypes, arguments, opts);
-  }
-}
-
-
-
-
-var ALLOC_NORMAL = 0; 
-var ALLOC_STACK = 1; 
-
-
-function allocate(slab, allocator) {
-  var ret;
-
-  if (allocator == ALLOC_STACK) {
-    ret = stackAlloc(slab.length);
-  } else {
-    ret = _malloc(slab.length);
-  }
-
-  if (!slab.subarray && !slab.slice) {
-    slab = new Uint8Array(slab);
-  }
-  HEAPU8.set(slab, ret);
-  return ret;
-}
-
-
-
-
-
-
-
-
-
-
-var UTF8Decoder = typeof TextDecoder != 'undefined' ? new TextDecoder('utf8') : undefined;
-
-
-function UTF8ArrayToString(heap, idx, maxBytesToRead) {
-  var endIdx = idx + maxBytesToRead;
-  var endPtr = idx;
-  
-  
-  
-  while (heap[endPtr] && !(endPtr >= endIdx)) ++endPtr;
-
-  if (endPtr - idx > 16 && heap.subarray && UTF8Decoder) {
-    return UTF8Decoder.decode(heap.subarray(idx, endPtr));
-  } else {
-    var str = '';
-    
-    while (idx < endPtr) {
-      
-      
-      
-      
-      var u0 = heap[idx++];
-      if (!(u0 & 0x80)) { str += String.fromCharCode(u0); continue; }
-      var u1 = heap[idx++] & 63;
-      if ((u0 & 0xE0) == 0xC0) { str += String.fromCharCode(((u0 & 31) << 6) | u1); continue; }
-      var u2 = heap[idx++] & 63;
-      if ((u0 & 0xF0) == 0xE0) {
-        u0 = ((u0 & 15) << 12) | (u1 << 6) | u2;
-      } else {
-        u0 = ((u0 & 7) << 18) | (u1 << 12) | (u2 << 6) | (heap[idx++] & 63);
-      }
-
-      if (u0 < 0x10000) {
-        str += String.fromCharCode(u0);
-      } else {
-        var ch = u0 - 0x10000;
-        str += String.fromCharCode(0xD800 | (ch >> 10), 0xDC00 | (ch & 0x3FF));
-      }
-    }
-  }
-  return str;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-function UTF8ToString(ptr, maxBytesToRead) {
-  ;
-  return ptr ? UTF8ArrayToString(HEAPU8, ptr, maxBytesToRead) : '';
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function stringToUTF8Array(str, heap, outIdx, maxBytesToWrite) {
-  if (!(maxBytesToWrite > 0)) 
-    return 0;
-
-  var startIdx = outIdx;
-  var endIdx = outIdx + maxBytesToWrite - 1; 
-  for (var i = 0; i < str.length; ++i) {
-    
-    
-    
-    var u = str.charCodeAt(i); 
-    if (u >= 0xD800 && u <= 0xDFFF) {
-      var u1 = str.charCodeAt(++i);
-      u = 0x10000 + ((u & 0x3FF) << 10) | (u1 & 0x3FF);
-    }
-    if (u <= 0x7F) {
-      if (outIdx >= endIdx) break;
-      heap[outIdx++] = u;
-    } else if (u <= 0x7FF) {
-      if (outIdx + 1 >= endIdx) break;
-      heap[outIdx++] = 0xC0 | (u >> 6);
-      heap[outIdx++] = 0x80 | (u & 63);
-    } else if (u <= 0xFFFF) {
-      if (outIdx + 2 >= endIdx) break;
-      heap[outIdx++] = 0xE0 | (u >> 12);
-      heap[outIdx++] = 0x80 | ((u >> 6) & 63);
-      heap[outIdx++] = 0x80 | (u & 63);
-    } else {
-      if (outIdx + 3 >= endIdx) break;
-      heap[outIdx++] = 0xF0 | (u >> 18);
-      heap[outIdx++] = 0x80 | ((u >> 12) & 63);
-      heap[outIdx++] = 0x80 | ((u >> 6) & 63);
-      heap[outIdx++] = 0x80 | (u & 63);
-    }
-  }
-  
-  heap[outIdx] = 0;
-  return outIdx - startIdx;
-}
-
-
-
-
-
-
-function stringToUTF8(str, outPtr, maxBytesToWrite) {
-  return stringToUTF8Array(str, HEAPU8,outPtr, maxBytesToWrite);
-}
-
-
-function lengthBytesUTF8(str) {
-  var len = 0;
-  for (var i = 0; i < str.length; ++i) {
-    
-    
-    var u = str.charCodeAt(i); 
-    if (u >= 0xD800 && u <= 0xDFFF) u = 0x10000 + ((u & 0x3FF) << 10) | (str.charCodeAt(++i) & 0x3FF);
-    if (u <= 0x7F) ++len;
-    else if (u <= 0x7FF) len += 2;
-    else if (u <= 0xFFFF) len += 3;
-    else len += 4;
-  }
-  return len;
-}
-
-
-
-
-
-
-
-
-
-
-function AsciiToString(ptr) {
-  var str = '';
-  while (1) {
-    var ch = HEAPU8[((ptr++)>>0)];
-    if (!ch) return str;
-    str += String.fromCharCode(ch);
-  }
-}
-
-
-
-
-function stringToAscii(str, outPtr) {
-  return writeAsciiToMemory(str, outPtr, false);
-}
-
-
-
-
-var UTF16Decoder = typeof TextDecoder != 'undefined' ? new TextDecoder('utf-16le') : undefined;
-
-function UTF16ToString(ptr, maxBytesToRead) {
-  var endPtr = ptr;
-  
-  
-  var idx = endPtr >> 1;
-  var maxIdx = idx + maxBytesToRead / 2;
-  
-  
-  while (!(idx >= maxIdx) && HEAPU16[idx]) ++idx;
-  endPtr = idx << 1;
-
-  if (endPtr - ptr > 32 && UTF16Decoder) {
-    return UTF16Decoder.decode(HEAPU8.subarray(ptr, endPtr));
-  } else {
-    var str = '';
-
-    
-    
-    for (var i = 0; !(i >= maxBytesToRead / 2); ++i) {
-      var codeUnit = HEAP16[(((ptr)+(i*2))>>1)];
-      if (codeUnit == 0) break;
-      
-      str += String.fromCharCode(codeUnit);
-    }
-
-    return str;
-  }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-function stringToUTF16(str, outPtr, maxBytesToWrite) {
-  
-  if (maxBytesToWrite === undefined) {
-    maxBytesToWrite = 0x7FFFFFFF;
-  }
-  if (maxBytesToWrite < 2) return 0;
-  maxBytesToWrite -= 2; 
-  var startPtr = outPtr;
-  var numCharsToWrite = (maxBytesToWrite < str.length*2) ? (maxBytesToWrite / 2) : str.length;
-  for (var i = 0; i < numCharsToWrite; ++i) {
-    
-    var codeUnit = str.charCodeAt(i); 
-    HEAP16[((outPtr)>>1)] = codeUnit;
-    outPtr += 2;
-  }
-  
-  HEAP16[((outPtr)>>1)] = 0;
-  return outPtr - startPtr;
-}
-
-
-
-function lengthBytesUTF16(str) {
-  return str.length*2;
-}
-
-function UTF32ToString(ptr, maxBytesToRead) {
-  var i = 0;
-
-  var str = '';
-  
-  
-  while (!(i >= maxBytesToRead / 4)) {
-    var utf32 = HEAP32[(((ptr)+(i*4))>>2)];
-    if (utf32 == 0) break;
-    ++i;
-    
-    
-    if (utf32 >= 0x10000) {
-      var ch = utf32 - 0x10000;
-      str += String.fromCharCode(0xD800 | (ch >> 10), 0xDC00 | (ch & 0x3FF));
-    } else {
-      str += String.fromCharCode(utf32);
-    }
-  }
-  return str;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-function stringToUTF32(str, outPtr, maxBytesToWrite) {
-  
-  if (maxBytesToWrite === undefined) {
-    maxBytesToWrite = 0x7FFFFFFF;
-  }
-  if (maxBytesToWrite < 4) return 0;
-  var startPtr = outPtr;
-  var endPtr = startPtr + maxBytesToWrite - 4;
-  for (var i = 0; i < str.length; ++i) {
-    
-    
-    var codeUnit = str.charCodeAt(i); 
-    if (codeUnit >= 0xD800 && codeUnit <= 0xDFFF) {
-      var trailSurrogate = str.charCodeAt(++i);
-      codeUnit = 0x10000 + ((codeUnit & 0x3FF) << 10) | (trailSurrogate & 0x3FF);
-    }
-    HEAP32[((outPtr)>>2)] = codeUnit;
-    outPtr += 4;
-    if (outPtr + 4 > endPtr) break;
-  }
-  
-  HEAP32[((outPtr)>>2)] = 0;
-  return outPtr - startPtr;
-}
-
-
-
-function lengthBytesUTF32(str) {
-  var len = 0;
-  for (var i = 0; i < str.length; ++i) {
-    
-    
-    var codeUnit = str.charCodeAt(i);
-    if (codeUnit >= 0xD800 && codeUnit <= 0xDFFF) ++i; 
-    len += 4;
-  }
-
-  return len;
-}
-
-
-
-function allocateUTF8(str) {
-  var size = lengthBytesUTF8(str) + 1;
-  var ret = _malloc(size);
-  if (ret) stringToUTF8Array(str, HEAP8, ret, size);
-  return ret;
-}
-
-
-function allocateUTF8OnStack(str) {
-  var size = lengthBytesUTF8(str) + 1;
-  var ret = stackAlloc(size);
-  stringToUTF8Array(str, HEAP8, ret, size);
-  return ret;
-}
-
-
-
-
-
-
-function writeStringToMemory(string, buffer, dontAddNull) {
-  warnOnce('writeStringToMemory is deprecated and should not be called! Use stringToUTF8() instead!');
-
-  var  lastChar,  end;
-  if (dontAddNull) {
-    
-    
-    
-    end = buffer + lengthBytesUTF8(string);
-    lastChar = HEAP8[end];
-  }
-  stringToUTF8(string, buffer, Infinity);
-  if (dontAddNull) HEAP8[end] = lastChar; 
-}
-
-function writeArrayToMemory(array, buffer) {
-  HEAP8.set(array, buffer);
-}
-
-
-function writeAsciiToMemory(str, buffer, dontAddNull) {
-  for (var i = 0; i < str.length; ++i) {
-    HEAP8[((buffer++)>>0)] = str.charCodeAt(i);
-  }
-  
-  if (!dontAddNull) HEAP8[((buffer)>>0)] = 0;
-}
-
-
-
 
 var HEAP,
-
-  buffer,
 
   HEAP8,
 
@@ -1052,23 +320,21 @@ var HEAP,
 
   HEAPF64;
 
-function updateGlobalBufferAndViews(buf) {
-  buffer = buf;
-  Module['HEAP8'] = HEAP8 = new Int8Array(buf);
-  Module['HEAP16'] = HEAP16 = new Int16Array(buf);
-  Module['HEAP32'] = HEAP32 = new Int32Array(buf);
-  Module['HEAPU8'] = HEAPU8 = new Uint8Array(buf);
-  Module['HEAPU16'] = HEAPU16 = new Uint16Array(buf);
-  Module['HEAPU32'] = HEAPU32 = new Uint32Array(buf);
-  Module['HEAPF32'] = HEAPF32 = new Float32Array(buf);
-  Module['HEAPF64'] = HEAPF64 = new Float64Array(buf);
-  Module['HEAP64'] = HEAP64 = new BigInt64Array(buf);
-  Module['HEAPU64'] = HEAPU64 = new BigUint64Array(buf);
+
+function updateMemoryViews() {
+  var b = wasmMemory.buffer;
+  Module['HEAP8'] = HEAP8 = new Int8Array(b);
+  Module['HEAP16'] = HEAP16 = new Int16Array(b);
+  Module['HEAPU8'] = HEAPU8 = new Uint8Array(b);
+  Module['HEAPU16'] = HEAPU16 = new Uint16Array(b);
+  Module['HEAP32'] = HEAP32 = new Int32Array(b);
+  Module['HEAPU32'] = HEAPU32 = new Uint32Array(b);
+  Module['HEAPF32'] = HEAPF32 = new Float32Array(b);
+  Module['HEAPF64'] = HEAPF64 = new Float64Array(b);
+  Module['HEAP64'] = HEAP64 = new BigInt64Array(b);
+  Module['HEAPU64'] = HEAPU64 = new BigUint64Array(b);
 }
 
-var TOTAL_STACK = 5242880;
-
-var INITIAL_MEMORY = Module['INITIAL_MEMORY'] || 8388608;
 
 
 
@@ -1080,6 +346,9 @@ var INITIAL_MEMORY = Module['INITIAL_MEMORY'] || 8388608;
     wasmMemory = Module['wasmMemory'];
   } else
   {
+    var INITIAL_MEMORY = Module['INITIAL_MEMORY'] || 8388608;
+
+    
     wasmMemory = new WebAssembly.Memory({
       'initial': INITIAL_MEMORY / 65536,
       
@@ -1087,31 +356,11 @@ var INITIAL_MEMORY = Module['INITIAL_MEMORY'] || 8388608;
       
       
       
-      'maximum': 2147483648 / 65536
+      'maximum': 32768,
     });
   }
 
-if (wasmMemory) {
-  buffer = wasmMemory.buffer;
-}
-
-
-
-INITIAL_MEMORY = buffer.byteLength;
-updateGlobalBufferAndViews(buffer);
-
-
-
-
-
-
-
-var wasmTable;
-
-
-
-
-
+  updateMemoryViews();
 
 
 
@@ -1123,22 +372,14 @@ var __ATEXIT__    = [];
 var __ATPOSTRUN__ = []; 
 
 var runtimeInitialized = false;
-var runtimeExited = false;
-var runtimeKeepaliveCounter = 0;
-
-function keepRuntimeAlive() {
-  return noExitRuntime || runtimeKeepaliveCounter > 0;
-}
 
 function preRun() {
-
   if (Module['preRun']) {
     if (typeof Module['preRun'] == 'function') Module['preRun'] = [Module['preRun']];
     while (Module['preRun'].length) {
       addOnPreRun(Module['preRun'].shift());
     }
   }
-
   callRuntimeCallbacks(__ATPRERUN__);
 }
 
@@ -1146,17 +387,13 @@ function initRuntime() {
   runtimeInitialized = true;
 
   
-if (!Module["noFSInit"] && !FS.init.initialized)
+if (!Module['noFSInit'] && !FS.initialized)
   FS.init();
 FS.ignorePermissions = false;
 
 TTY.init();
 SOCKFS.root = FS.mount(SOCKFS, {}, null);
   callRuntimeCallbacks(__ATINIT__);
-}
-
-function exitRuntime() {
-  runtimeExited = true;
 }
 
 function postRun() {
@@ -1203,10 +440,7 @@ function addOnPostRun(cb) {
 
 
 
-
-
 var runDependencies = 0;
-var runDependencyWatcher = null;
 var dependenciesFulfilled = null; 
 
 function getUniqueRunDependency(id) {
@@ -1216,24 +450,16 @@ function getUniqueRunDependency(id) {
 function addRunDependency(id) {
   runDependencies++;
 
-  if (Module['monitorRunDependencies']) {
-    Module['monitorRunDependencies'](runDependencies);
-  }
+  Module['monitorRunDependencies']?.(runDependencies);
 
 }
 
 function removeRunDependency(id) {
   runDependencies--;
 
-  if (Module['monitorRunDependencies']) {
-    Module['monitorRunDependencies'](runDependencies);
-  }
+  Module['monitorRunDependencies']?.(runDependencies);
 
   if (runDependencies == 0) {
-    if (runDependencyWatcher !== null) {
-      clearInterval(runDependencyWatcher);
-      runDependencyWatcher = null;
-    }
     if (dependenciesFulfilled) {
       var callback = dependenciesFulfilled;
       dependenciesFulfilled = null;
@@ -1242,16 +468,9 @@ function removeRunDependency(id) {
   }
 }
 
-Module["preloadedImages"] = {}; 
-Module["preloadedAudios"] = {}; 
-
 
 function abort(what) {
-  {
-    if (Module['onAbort']) {
-      Module['onAbort'](what);
-    }
-  }
+  Module['onAbort']?.(what);
 
   what = 'Aborted(' + what + ')';
   
@@ -1259,19 +478,22 @@ function abort(what) {
   err(what);
 
   ABORT = true;
-  EXITSTATUS = 1;
 
-  what += '. Build with -s ASSERTIONS=1 for more info.';
-
-  
-  
-  
+  what += '. Build with -sASSERTIONS for more info.';
 
   
   
   
   
+  
+  
+  
+  
 
+  
+  
+  
+  
   
   var e = new WebAssembly.RuntimeError(what);
 
@@ -1286,94 +508,109 @@ function abort(what) {
 
 
 
-
-
-
-
-
-
 var dataURIPrefix = 'data:application/octet-stream;base64,';
 
 
-function isDataURI(filename) {
-  
-  return filename.startsWith(dataURIPrefix);
+var isDataURI = (filename) => filename.startsWith(dataURIPrefix);
+
+
+var isFileURI = (filename) => filename.startsWith('file://');
+
+
+
+function findWasmBinary() {
+    var f = 'sqlite3.wasm';
+    if (!isDataURI(f)) {
+      return locateFile(f);
+    }
+    return f;
 }
-
-
-function isFileURI(filename) {
-  return filename.startsWith('file://');
-}
-
 
 var wasmBinaryFile;
-  wasmBinaryFile = 'sqlite3.wasm';
-  if (!isDataURI(wasmBinaryFile)) {
-    wasmBinaryFile = locateFile(wasmBinaryFile);
+
+function getBinarySync(file) {
+  if (file == wasmBinaryFile && wasmBinary) {
+    return new Uint8Array(wasmBinary);
+  }
+  if (readBinary) {
+    return readBinary(file);
+  }
+  throw 'both async and sync fetching of the wasm failed';
+}
+
+async function getWasmBinary(binaryFile) {
+  
+  if (!wasmBinary
+      ) {
+    
+    try {
+      var response = await readAsync(binaryFile);
+      return new Uint8Array(response);
+    } catch {
+      
+    }
   }
 
-function getBinary(file) {
+  
+  return getBinarySync(binaryFile);
+}
+
+async function instantiateArrayBuffer(binaryFile, imports) {
   try {
-    if (file == wasmBinaryFile && wasmBinary) {
-      return new Uint8Array(wasmBinary);
-    }
-    if (readBinary) {
-      return readBinary(file);
-    } else {
-      throw "both async and sync fetching of the wasm failed";
-    }
-  }
-  catch (err) {
-    abort(err);
+    var binary = await getWasmBinary(binaryFile);
+    var instance = await WebAssembly.instantiate(binary, imports);
+    return instance;
+  } catch (reason) {
+    err(`failed to asynchronously prepare wasm: ${reason}`);
+
+    abort(reason);
   }
 }
 
-function getBinaryPromise() {
-  
-  
-  
-  
-  
-  if (!wasmBinary && (ENVIRONMENT_IS_WEB || ENVIRONMENT_IS_WORKER)) {
-    if (typeof fetch == 'function'
-    ) {
-      return fetch(wasmBinaryFile, { credentials: 'same-origin' }).then(function(response) {
-        if (!response['ok']) {
-          throw "failed to load wasm binary file at '" + wasmBinaryFile + "'";
-        }
-        return response['arrayBuffer']();
-      }).catch(function () {
-          return getBinary(wasmBinaryFile);
-      });
-    }
+async function instantiateAsync(binary, binaryFile, imports) {
+  if (!binary &&
+      typeof WebAssembly.instantiateStreaming == 'function' &&
+      !isDataURI(binaryFile) &&
+      typeof fetch == 'function') {
+    try {
+      var response = fetch(binaryFile, { credentials: 'same-origin' });
+      var instantiationResult = await WebAssembly.instantiateStreaming(response, imports);
+      return instantiationResult;
+    } catch (reason) {
+      
+      
+      err(`wasm streaming compile failed: ${reason}`);
+      err('falling back to ArrayBuffer instantiation');
+      
+    };
   }
+  return instantiateArrayBuffer(binaryFile, imports);
+}
 
+function getWasmImports() {
   
-  return Promise.resolve().then(function() { return getBinary(wasmBinaryFile); });
+  return {
+    'env': wasmImports,
+    'wasi_snapshot_preview1': wasmImports,
+  }
 }
 
 
 
-function createWasm() {
-  
-  var info = {
-    'env': asmLibraryArg,
-    'wasi_snapshot_preview1': asmLibraryArg,
-  };
+async function createWasm() {
   
   
   
   
   function receiveInstance(instance, module) {
-    var exports = instance.exports;
+    wasmExports = instance.exports;
 
-    Module['asm'] = exports;
+    
 
-    wasmTable = Module['asm']['__indirect_function_table'];
-
-    addOnInit(Module['asm']['__wasm_call_ctors']);
+    addOnInit(wasmExports['__wasm_call_ctors']);
 
     removeRunDependency('wasm-instantiate');
+    return wasmExports;
   }
   
   addRunDependency('wasm-instantiate');
@@ -1387,168 +624,105 @@ function createWasm() {
     receiveInstance(result['instance']);
   }
 
-  function instantiateArrayBuffer(receiver) {
-    return getBinaryPromise().then(function(binary) {
-      return WebAssembly.instantiate(binary, info);
-    }).then(function (instance) {
-      return instance;
-    }).then(receiver, function(reason) {
-      err('failed to asynchronously prepare wasm: ' + reason);
+  var info = getWasmImports();
 
-      abort(reason);
-    });
-  }
-
-  function instantiateAsync() {
-    if (!wasmBinary &&
-        typeof WebAssembly.instantiateStreaming == 'function' &&
-        !isDataURI(wasmBinaryFile) &&
-        typeof fetch == 'function') {
-      return fetch(wasmBinaryFile, { credentials: 'same-origin' }).then(function(response) {
-        
-        
-        
-        
-        
-        var result = WebAssembly.instantiateStreaming(response, info);
-
-        return result.then(
-          receiveInstantiationResult,
-          function(reason) {
-            
-            
-            err('wasm streaming compile failed: ' + reason);
-            err('falling back to ArrayBuffer instantiation');
-            return instantiateArrayBuffer(receiveInstantiationResult);
-          });
-      });
-    } else {
-      return instantiateArrayBuffer(receiveInstantiationResult);
-    }
-  }
-
+  
+  
+  
   
   
   
   if (Module['instantiateWasm']) {
     try {
-      var exports = Module['instantiateWasm'](info, receiveInstance);
-      return exports;
+      return Module['instantiateWasm'](info, receiveInstance);
     } catch(e) {
-      err('Module.instantiateWasm callback failed with error: ' + e);
-      return false;
+      err(`Module.instantiateWasm callback failed with error: ${e}`);
+        
+        readyPromiseReject(e);
     }
   }
 
-  
-  instantiateAsync().catch(readyPromiseReject);
-  return {}; 
+  wasmBinaryFile ??= findWasmBinary();
+
+  try {
+    var result = await instantiateAsync(wasmBinary, wasmBinaryFile, info);
+    receiveInstantiationResult(result);
+    return result;
+  } catch (e) {
+    
+    readyPromiseReject(e);
+    return;
+  }
 }
 
 
-var tempDouble;
-var tempI64;
-
-
-
-var ASM_CONSTS = {
-  
-};
 
 
 
 
 
+  class ExitStatus {
+      name = 'ExitStatus';
+      constructor(status) {
+        this.message = `Program terminated with exit(${status})`;
+        this.status = status;
+      }
+    }
 
-  function callRuntimeCallbacks(callbacks) {
+  var callRuntimeCallbacks = (callbacks) => {
       while (callbacks.length > 0) {
-        var callback = callbacks.shift();
-        if (typeof callback == 'function') {
-          callback(Module); 
-          continue;
-        }
-        var func = callback.func;
-        if (typeof func == 'number') {
-          if (callback.arg === undefined) {
-            getWasmTableEntry(func)();
-          } else {
-            getWasmTableEntry(func)(callback.arg);
-          }
-        } else {
-          func(callback.arg === undefined ? null : callback.arg);
-        }
-      }
-    }
-
-  function withStackSave(f) {
-      var stack = stackSave();
-      var ret = f();
-      stackRestore(stack);
-      return ret;
-    }
-  function demangle(func) {
-      return func;
-    }
-
-  function demangleAll(text) {
-      var regex =
-        /\b_Z[\w\d_]+/g;
-      return text.replace(regex,
-        function(x) {
-          var y = demangle(x);
-          return x === y ? x : (y + ' [' + x + ']');
-        });
-    }
-
-  function getWasmTableEntry(funcPtr) {
-      
-      
-      return wasmTable.get(funcPtr);
-    }
-
-  function handleException(e) {
-      
-      
-      
-      
-      
-      if (e instanceof ExitStatus || e == 'unwind') {
-        return EXITSTATUS;
-      }
-      quit_(1, e);
-    }
-
-  function jsStackTrace() {
-      var error = new Error();
-      if (!error.stack) {
         
-        
-        try {
-          throw new Error();
-        } catch(e) {
-          error = e;
-        }
-        if (!error.stack) {
-          return '(no stack trace available)';
-        }
+        callbacks.shift()(Module);
       }
-      return error.stack.toString();
-    }
+    };
 
-  function setWasmTableEntry(idx, func) {
-      wasmTable.set(idx, func);
+  
+    
+  function getValue(ptr, type = 'i8') {
+    if (type.endsWith('*')) type = '*';
+    switch (type) {
+      case 'i1': return HEAP8[ptr];
+      case 'i8': return HEAP8[ptr];
+      case 'i16': return HEAP16[((ptr)>>1)];
+      case 'i32': return HEAP32[((ptr)>>2)];
+      case 'i64': return HEAP64[((ptr)>>3)];
+      case 'float': return HEAPF32[((ptr)>>2)];
+      case 'double': return HEAPF64[((ptr)>>3)];
+      case '*': return HEAPU32[((ptr)>>2)];
+      default: abort(`invalid type for getValue: ${type}`);
     }
+  }
 
-  function stackTrace() {
-      var js = jsStackTrace();
-      if (Module['extraStackTrace']) js += '\n' + Module['extraStackTrace']();
-      return demangleAll(js);
+  var noExitRuntime = Module['noExitRuntime'] || true;
+
+  
+    
+  function setValue(ptr, value, type = 'i8') {
+    if (type.endsWith('*')) type = '*';
+    switch (type) {
+      case 'i1': HEAP8[ptr] = value; break;
+      case 'i8': HEAP8[ptr] = value; break;
+      case 'i16': HEAP16[((ptr)>>1)] = value; break;
+      case 'i32': HEAP32[((ptr)>>2)] = value; break;
+      case 'i64': HEAP64[((ptr)>>3)] = BigInt(value); break;
+      case 'float': HEAPF32[((ptr)>>2)] = value; break;
+      case 'double': HEAPF64[((ptr)>>3)] = value; break;
+      case '*': HEAPU32[((ptr)>>2)] = value; break;
+      default: abort(`invalid type for setValue: ${type}`);
     }
+  }
 
-  var PATH = {splitPath:function(filename) {
+  var stackRestore = (val) => __emscripten_stack_restore(val);
+
+  var stackSave = () => _emscripten_stack_get_current();
+
+  var PATH = {
+  isAbs:(path) => path.charAt(0) === '/',
+  splitPath:(filename) => {
         var splitPathRe = /^(\/?|)([\s\S]*?)((?:\.{1,2}|[^\/]+?|)(\.[^.\/]*|))(?:[\/]*)$/;
         return splitPathRe.exec(filename).slice(1);
-      },normalizeArray:function(parts, allowAboveRoot) {
+      },
+  normalizeArray:(parts, allowAboveRoot) => {
         
         var up = 0;
         for (var i = parts.length - 1; i >= 0; i--) {
@@ -1570,13 +744,12 @@ var ASM_CONSTS = {
           }
         }
         return parts;
-      },normalize:function(path) {
-        var isAbsolute = path.charAt(0) === '/',
+      },
+  normalize:(path) => {
+        var isAbsolute = PATH.isAbs(path),
             trailingSlash = path.substr(-1) === '/';
         
-        path = PATH.normalizeArray(path.split('/').filter(function(p) {
-          return !!p;
-        }), !isAbsolute).join('/');
+        path = PATH.normalizeArray(path.split('/').filter((p) => !!p), !isAbsolute).join('/');
         if (!path && !isAbsolute) {
           path = '.';
         }
@@ -1584,7 +757,8 @@ var ASM_CONSTS = {
           path += '/';
         }
         return (isAbsolute ? '/' : '') + path;
-      },dirname:function(path) {
+      },
+  dirname:(path) => {
         var result = PATH.splitPath(path),
             root = result[0],
             dir = result[1];
@@ -1597,7 +771,8 @@ var ASM_CONSTS = {
           dir = dir.substr(0, dir.length - 1);
         }
         return root + dir;
-      },basename:function(path) {
+      },
+  basename:(path) => {
         
         if (path === '/') return '/';
         path = PATH.normalize(path);
@@ -1605,30 +780,32 @@ var ASM_CONSTS = {
         var lastSlash = path.lastIndexOf('/');
         if (lastSlash === -1) return path;
         return path.substr(lastSlash+1);
-      },extname:function(path) {
-        return PATH.splitPath(path)[3];
-      },join:function() {
-        var paths = Array.prototype.slice.call(arguments, 0);
-        return PATH.normalize(paths.join('/'));
-      },join2:function(l, r) {
-        return PATH.normalize(l + '/' + r);
-      }};
+      },
+  join:(...paths) => PATH.normalize(paths.join('/')),
+  join2:(l, r) => PATH.normalize(l + '/' + r),
+  };
   
-  function getRandomDevice() {
+  var initRandomFill = () => {
       if (typeof crypto == 'object' && typeof crypto['getRandomValues'] == 'function') {
         
-        var randomBuffer = new Uint8Array(1);
-        return function() { crypto.getRandomValues(randomBuffer); return randomBuffer[0]; };
+        return (view) => crypto.getRandomValues(view);
       } else
       
-      return function() { abort("randomDevice"); };
-    }
+      abort('initRandomDevice');
+    };
+  var randomFill = (view) => {
+      
+      return (randomFill = initRandomFill())(view);
+    };
   
-  var PATH_FS = {resolve:function() {
+  
+  
+  var PATH_FS = {
+  resolve:(...args) => {
         var resolvedPath = '',
           resolvedAbsolute = false;
-        for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
-          var path = (i >= 0) ? arguments[i] : FS.cwd();
+        for (var i = args.length - 1; i >= -1 && !resolvedAbsolute; i--) {
+          var path = (i >= 0) ? args[i] : FS.cwd();
           
           if (typeof path != 'string') {
             throw new TypeError('Arguments to path.resolve must be strings');
@@ -1636,15 +813,14 @@ var ASM_CONSTS = {
             return ''; 
           }
           resolvedPath = path + '/' + resolvedPath;
-          resolvedAbsolute = path.charAt(0) === '/';
+          resolvedAbsolute = PATH.isAbs(path);
         }
         
         
-        resolvedPath = PATH.normalizeArray(resolvedPath.split('/').filter(function(p) {
-          return !!p;
-        }), !resolvedAbsolute).join('/');
+        resolvedPath = PATH.normalizeArray(resolvedPath.split('/').filter((p) => !!p), !resolvedAbsolute).join('/');
         return ((resolvedAbsolute ? '/' : '') + resolvedPath) || '.';
-      },relative:function(from, to) {
+      },
+  relative:(from, to) => {
         from = PATH_FS.resolve(from).substr(1);
         to = PATH_FS.resolve(to).substr(1);
         function trim(arr) {
@@ -1675,9 +851,153 @@ var ASM_CONSTS = {
         }
         outputParts = outputParts.concat(toParts.slice(samePartsLength));
         return outputParts.join('/');
-      }};
+      },
+  };
   
-  var TTY = {ttys:[],init:function () {
+  
+  var UTF8Decoder = typeof TextDecoder != 'undefined' ? new TextDecoder() : undefined;
+  
+    
+  var UTF8ArrayToString = (heapOrArray, idx = 0, maxBytesToRead = NaN) => {
+      var endIdx = idx + maxBytesToRead;
+      var endPtr = idx;
+      
+      
+      
+      
+      
+      while (heapOrArray[endPtr] && !(endPtr >= endIdx)) ++endPtr;
+  
+      if (endPtr - idx > 16 && heapOrArray.buffer && UTF8Decoder) {
+        return UTF8Decoder.decode(heapOrArray.subarray(idx, endPtr));
+      }
+      var str = '';
+      
+      
+      while (idx < endPtr) {
+        
+        
+        
+        
+        var u0 = heapOrArray[idx++];
+        if (!(u0 & 0x80)) { str += String.fromCharCode(u0); continue; }
+        var u1 = heapOrArray[idx++] & 63;
+        if ((u0 & 0xE0) == 0xC0) { str += String.fromCharCode(((u0 & 31) << 6) | u1); continue; }
+        var u2 = heapOrArray[idx++] & 63;
+        if ((u0 & 0xF0) == 0xE0) {
+          u0 = ((u0 & 15) << 12) | (u1 << 6) | u2;
+        } else {
+          u0 = ((u0 & 7) << 18) | (u1 << 12) | (u2 << 6) | (heapOrArray[idx++] & 63);
+        }
+  
+        if (u0 < 0x10000) {
+          str += String.fromCharCode(u0);
+        } else {
+          var ch = u0 - 0x10000;
+          str += String.fromCharCode(0xD800 | (ch >> 10), 0xDC00 | (ch & 0x3FF));
+        }
+      }
+      return str;
+    };
+  
+  var FS_stdin_getChar_buffer = [];
+  
+  var lengthBytesUTF8 = (str) => {
+      var len = 0;
+      for (var i = 0; i < str.length; ++i) {
+        
+        
+        
+        
+        var c = str.charCodeAt(i); 
+        if (c <= 0x7F) {
+          len++;
+        } else if (c <= 0x7FF) {
+          len += 2;
+        } else if (c >= 0xD800 && c <= 0xDFFF) {
+          len += 4; ++i;
+        } else {
+          len += 3;
+        }
+      }
+      return len;
+    };
+  
+  var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
+      
+      
+      if (!(maxBytesToWrite > 0))
+        return 0;
+  
+      var startIdx = outIdx;
+      var endIdx = outIdx + maxBytesToWrite - 1; 
+      for (var i = 0; i < str.length; ++i) {
+        
+        
+        
+        
+        
+        
+        
+        var u = str.charCodeAt(i); 
+        if (u >= 0xD800 && u <= 0xDFFF) {
+          var u1 = str.charCodeAt(++i);
+          u = 0x10000 + ((u & 0x3FF) << 10) | (u1 & 0x3FF);
+        }
+        if (u <= 0x7F) {
+          if (outIdx >= endIdx) break;
+          heap[outIdx++] = u;
+        } else if (u <= 0x7FF) {
+          if (outIdx + 1 >= endIdx) break;
+          heap[outIdx++] = 0xC0 | (u >> 6);
+          heap[outIdx++] = 0x80 | (u & 63);
+        } else if (u <= 0xFFFF) {
+          if (outIdx + 2 >= endIdx) break;
+          heap[outIdx++] = 0xE0 | (u >> 12);
+          heap[outIdx++] = 0x80 | ((u >> 6) & 63);
+          heap[outIdx++] = 0x80 | (u & 63);
+        } else {
+          if (outIdx + 3 >= endIdx) break;
+          heap[outIdx++] = 0xF0 | (u >> 18);
+          heap[outIdx++] = 0x80 | ((u >> 12) & 63);
+          heap[outIdx++] = 0x80 | ((u >> 6) & 63);
+          heap[outIdx++] = 0x80 | (u & 63);
+        }
+      }
+      
+      heap[outIdx] = 0;
+      return outIdx - startIdx;
+    };
+  
+  function intArrayFromString(stringy, dontAddNull, length) {
+    var len = length > 0 ? length : lengthBytesUTF8(stringy)+1;
+    var u8array = new Array(len);
+    var numBytesWritten = stringToUTF8Array(stringy, u8array, 0, u8array.length);
+    if (dontAddNull) u8array.length = numBytesWritten;
+    return u8array;
+  }
+  var FS_stdin_getChar = () => {
+      if (!FS_stdin_getChar_buffer.length) {
+        var result = null;
+        if (typeof window != 'undefined' &&
+          typeof window.prompt == 'function') {
+          
+          result = window.prompt('Input: ');  
+          if (result !== null) {
+            result += '\n';
+          }
+        } else
+        {}
+        if (!result) {
+          return null;
+        }
+        FS_stdin_getChar_buffer = intArrayFromString(result, true);
+      }
+      return FS_stdin_getChar_buffer.shift();
+    };
+  var TTY = {
+  ttys:[],
+  init() {
         
         
         
@@ -1686,7 +1006,8 @@ var ASM_CONSTS = {
         
         
         
-      },shutdown:function() {
+      },
+  shutdown() {
         
         
         
@@ -1696,22 +1017,28 @@ var ASM_CONSTS = {
         
         
         
-      },register:function(dev, ops) {
+      },
+  register(dev, ops) {
         TTY.ttys[dev] = { input: [], output: [], ops: ops };
         FS.registerDevice(dev, TTY.stream_ops);
-      },stream_ops:{open:function(stream) {
+      },
+  stream_ops:{
+  open(stream) {
           var tty = TTY.ttys[stream.node.rdev];
           if (!tty) {
             throw new FS.ErrnoError(43);
           }
           stream.tty = tty;
           stream.seekable = false;
-        },close:function(stream) {
+        },
+  close(stream) {
           
-          stream.tty.ops.flush(stream.tty);
-        },flush:function(stream) {
-          stream.tty.ops.flush(stream.tty);
-        },read:function(stream, buffer, offset, length, pos ) {
+          stream.tty.ops.fsync(stream.tty);
+        },
+  fsync(stream) {
+          stream.tty.ops.fsync(stream.tty);
+        },
+  read(stream, buffer, offset, length, pos ) {
           if (!stream.tty || !stream.tty.ops.get_char) {
             throw new FS.ErrnoError(60);
           }
@@ -1731,10 +1058,11 @@ var ASM_CONSTS = {
             buffer[offset+i] = result;
           }
           if (bytesRead) {
-            stream.node.timestamp = Date.now();
+            stream.node.atime = Date.now();
           }
           return bytesRead;
-        },write:function(stream, buffer, offset, length, pos) {
+        },
+  write(stream, buffer, offset, length, pos) {
           if (!stream.tty || !stream.tty.ops.put_char) {
             throw new FS.ErrnoError(60);
           }
@@ -1746,128 +1074,140 @@ var ASM_CONSTS = {
             throw new FS.ErrnoError(29);
           }
           if (length) {
-            stream.node.timestamp = Date.now();
+            stream.node.mtime = stream.node.ctime = Date.now();
           }
           return i;
-        }},default_tty_ops:{get_char:function(tty) {
-          if (!tty.input.length) {
-            var result = null;
-            if (typeof window != 'undefined' &&
-              typeof window.prompt == 'function') {
-              
-              result = window.prompt('Input: ');  
-              if (result !== null) {
-                result += '\n';
-              }
-            } else if (typeof readline == 'function') {
-              
-              result = readline();
-              if (result !== null) {
-                result += '\n';
-              }
-            }
-            if (!result) {
-              return null;
-            }
-            tty.input = intArrayFromString(result, true);
-          }
-          return tty.input.shift();
-        },put_char:function(tty, val) {
+        },
+  },
+  default_tty_ops:{
+  get_char(tty) {
+          return FS_stdin_getChar();
+        },
+  put_char(tty, val) {
           if (val === null || val === 10) {
-            out(UTF8ArrayToString(tty.output, 0));
+            out(UTF8ArrayToString(tty.output));
             tty.output = [];
           } else {
             if (val != 0) tty.output.push(val); 
           }
-        },flush:function(tty) {
+        },
+  fsync(tty) {
           if (tty.output && tty.output.length > 0) {
-            out(UTF8ArrayToString(tty.output, 0));
+            out(UTF8ArrayToString(tty.output));
             tty.output = [];
           }
-        }},default_tty1_ops:{put_char:function(tty, val) {
+        },
+  ioctl_tcgets(tty) {
+          
+          return {
+            c_iflag: 25856,
+            c_oflag: 5,
+            c_cflag: 191,
+            c_lflag: 35387,
+            c_cc: [
+              0x03, 0x1c, 0x7f, 0x15, 0x04, 0x00, 0x01, 0x00, 0x11, 0x13, 0x1a, 0x00,
+              0x12, 0x0f, 0x17, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            ]
+          };
+        },
+  ioctl_tcsets(tty, optional_actions, data) {
+          
+          return 0;
+        },
+  ioctl_tiocgwinsz(tty) {
+          return [24, 80];
+        },
+  },
+  default_tty1_ops:{
+  put_char(tty, val) {
           if (val === null || val === 10) {
-            err(UTF8ArrayToString(tty.output, 0));
+            err(UTF8ArrayToString(tty.output));
             tty.output = [];
           } else {
             if (val != 0) tty.output.push(val);
           }
-        },flush:function(tty) {
+        },
+  fsync(tty) {
           if (tty.output && tty.output.length > 0) {
-            err(UTF8ArrayToString(tty.output, 0));
+            err(UTF8ArrayToString(tty.output));
             tty.output = [];
           }
-        }}};
+        },
+  },
+  };
   
-  function zeroMemory(address, size) {
+  
+  var zeroMemory = (address, size) => {
       HEAPU8.fill(0, address, address + size);
-    }
+    };
   
-  function alignMemory(size, alignment) {
+  var alignMemory = (size, alignment) => {
       return Math.ceil(size / alignment) * alignment;
-    }
-  function mmapAlloc(size) {
+    };
+  var mmapAlloc = (size) => {
       size = alignMemory(size, 65536);
       var ptr = _emscripten_builtin_memalign(65536, size);
-      if (!ptr) return 0;
-      zeroMemory(ptr, size);
+      if (ptr) zeroMemory(ptr, size);
       return ptr;
-    }
-  var MEMFS = {ops_table:null,mount:function(mount) {
-        return MEMFS.createNode(null, '/', 16384 | 511 , 0);
-      },createNode:function(parent, name, mode, dev) {
+    };
+  var MEMFS = {
+  ops_table:null,
+  mount(mount) {
+        return MEMFS.createNode(null, '/', 16895, 0);
+      },
+  createNode(parent, name, mode, dev) {
         if (FS.isBlkdev(mode) || FS.isFIFO(mode)) {
           
           throw new FS.ErrnoError(63);
         }
-        if (!MEMFS.ops_table) {
-          MEMFS.ops_table = {
-            dir: {
-              node: {
-                getattr: MEMFS.node_ops.getattr,
-                setattr: MEMFS.node_ops.setattr,
-                lookup: MEMFS.node_ops.lookup,
-                mknod: MEMFS.node_ops.mknod,
-                rename: MEMFS.node_ops.rename,
-                unlink: MEMFS.node_ops.unlink,
-                rmdir: MEMFS.node_ops.rmdir,
-                readdir: MEMFS.node_ops.readdir,
-                symlink: MEMFS.node_ops.symlink
-              },
-              stream: {
-                llseek: MEMFS.stream_ops.llseek
-              }
+        MEMFS.ops_table ||= {
+          dir: {
+            node: {
+              getattr: MEMFS.node_ops.getattr,
+              setattr: MEMFS.node_ops.setattr,
+              lookup: MEMFS.node_ops.lookup,
+              mknod: MEMFS.node_ops.mknod,
+              rename: MEMFS.node_ops.rename,
+              unlink: MEMFS.node_ops.unlink,
+              rmdir: MEMFS.node_ops.rmdir,
+              readdir: MEMFS.node_ops.readdir,
+              symlink: MEMFS.node_ops.symlink
             },
-            file: {
-              node: {
-                getattr: MEMFS.node_ops.getattr,
-                setattr: MEMFS.node_ops.setattr
-              },
-              stream: {
-                llseek: MEMFS.stream_ops.llseek,
-                read: MEMFS.stream_ops.read,
-                write: MEMFS.stream_ops.write,
-                allocate: MEMFS.stream_ops.allocate,
-                mmap: MEMFS.stream_ops.mmap,
-                msync: MEMFS.stream_ops.msync
-              }
-            },
-            link: {
-              node: {
-                getattr: MEMFS.node_ops.getattr,
-                setattr: MEMFS.node_ops.setattr,
-                readlink: MEMFS.node_ops.readlink
-              },
-              stream: {}
-            },
-            chrdev: {
-              node: {
-                getattr: MEMFS.node_ops.getattr,
-                setattr: MEMFS.node_ops.setattr
-              },
-              stream: FS.chrdev_stream_ops
+            stream: {
+              llseek: MEMFS.stream_ops.llseek
             }
-          };
-        }
+          },
+          file: {
+            node: {
+              getattr: MEMFS.node_ops.getattr,
+              setattr: MEMFS.node_ops.setattr
+            },
+            stream: {
+              llseek: MEMFS.stream_ops.llseek,
+              read: MEMFS.stream_ops.read,
+              write: MEMFS.stream_ops.write,
+              allocate: MEMFS.stream_ops.allocate,
+              mmap: MEMFS.stream_ops.mmap,
+              msync: MEMFS.stream_ops.msync
+            }
+          },
+          link: {
+            node: {
+              getattr: MEMFS.node_ops.getattr,
+              setattr: MEMFS.node_ops.setattr,
+              readlink: MEMFS.node_ops.readlink
+            },
+            stream: {}
+          },
+          chrdev: {
+            node: {
+              getattr: MEMFS.node_ops.getattr,
+              setattr: MEMFS.node_ops.setattr
+            },
+            stream: FS.chrdev_stream_ops
+          }
+        };
         var node = FS.createNode(parent, name, mode, dev);
         if (FS.isDir(node.mode)) {
           node.node_ops = MEMFS.ops_table.dir.node;
@@ -1888,18 +1228,20 @@ var ASM_CONSTS = {
           node.node_ops = MEMFS.ops_table.chrdev.node;
           node.stream_ops = MEMFS.ops_table.chrdev.stream;
         }
-        node.timestamp = Date.now();
+        node.atime = node.mtime = node.ctime = Date.now();
         
         if (parent) {
           parent.contents[name] = node;
-          parent.timestamp = node.timestamp;
+          parent.atime = parent.mtime = parent.ctime = node.atime;
         }
         return node;
-      },getFileDataAsTypedArray:function(node) {
+      },
+  getFileDataAsTypedArray(node) {
         if (!node.contents) return new Uint8Array(0);
         if (node.contents.subarray) return node.contents.subarray(0, node.usedBytes); 
         return new Uint8Array(node.contents);
-      },expandFileStorage:function(node, newCapacity) {
+      },
+  expandFileStorage(node, newCapacity) {
         var prevCapacity = node.contents ? node.contents.length : 0;
         if (prevCapacity >= newCapacity) return; 
         
@@ -1911,7 +1253,8 @@ var ASM_CONSTS = {
         var oldContents = node.contents;
         node.contents = new Uint8Array(newCapacity); 
         if (node.usedBytes > 0) node.contents.set(oldContents.subarray(0, node.usedBytes), 0); 
-      },resizeFileStorage:function(node, newSize) {
+      },
+  resizeFileStorage(node, newSize) {
         if (node.usedBytes == newSize) return;
         if (newSize == 0) {
           node.contents = null; 
@@ -1924,7 +1267,9 @@ var ASM_CONSTS = {
           }
           node.usedBytes = newSize;
         }
-      },node_ops:{getattr:function(node) {
+      },
+  node_ops:{
+  getattr(node) {
           var attr = {};
           
           attr.dev = FS.isChrdev(node.mode) ? node.id : 1;
@@ -1943,78 +1288,80 @@ var ASM_CONSTS = {
           } else {
             attr.size = 0;
           }
-          attr.atime = new Date(node.timestamp);
-          attr.mtime = new Date(node.timestamp);
-          attr.ctime = new Date(node.timestamp);
+          attr.atime = new Date(node.atime);
+          attr.mtime = new Date(node.mtime);
+          attr.ctime = new Date(node.ctime);
           
           
           attr.blksize = 4096;
           attr.blocks = Math.ceil(attr.size / attr.blksize);
           return attr;
-        },setattr:function(node, attr) {
-          if (attr.mode !== undefined) {
-            node.mode = attr.mode;
-          }
-          if (attr.timestamp !== undefined) {
-            node.timestamp = attr.timestamp;
+        },
+  setattr(node, attr) {
+          for (const key of ["mode", "atime", "mtime", "ctime"]) {
+            if (attr[key]) {
+              node[key] = attr[key];
+            }
           }
           if (attr.size !== undefined) {
             MEMFS.resizeFileStorage(node, attr.size);
           }
-        },lookup:function(parent, name) {
-          throw FS.genericErrors[44];
-        },mknod:function(parent, name, mode, dev) {
+        },
+  lookup(parent, name) {
+          throw MEMFS.doesNotExistError;
+        },
+  mknod(parent, name, mode, dev) {
           return MEMFS.createNode(parent, name, mode, dev);
-        },rename:function(old_node, new_dir, new_name) {
-          
-          if (FS.isDir(old_node.mode)) {
-            var new_node;
-            try {
-              new_node = FS.lookupNode(new_dir, new_name);
-            } catch (e) {
-            }
-            if (new_node) {
+        },
+  rename(old_node, new_dir, new_name) {
+          var new_node;
+          try {
+            new_node = FS.lookupNode(new_dir, new_name);
+          } catch (e) {}
+          if (new_node) {
+            if (FS.isDir(old_node.mode)) {
+              
               for (var i in new_node.contents) {
                 throw new FS.ErrnoError(55);
               }
             }
+            FS.hashRemoveNode(new_node);
           }
           
           delete old_node.parent.contents[old_node.name];
-          old_node.parent.timestamp = Date.now()
-          old_node.name = new_name;
           new_dir.contents[new_name] = old_node;
-          new_dir.timestamp = old_node.parent.timestamp;
-          old_node.parent = new_dir;
-        },unlink:function(parent, name) {
+          old_node.name = new_name;
+          new_dir.ctime = new_dir.mtime = old_node.parent.ctime = old_node.parent.mtime = Date.now();
+        },
+  unlink(parent, name) {
           delete parent.contents[name];
-          parent.timestamp = Date.now();
-        },rmdir:function(parent, name) {
+          parent.ctime = parent.mtime = Date.now();
+        },
+  rmdir(parent, name) {
           var node = FS.lookupNode(parent, name);
           for (var i in node.contents) {
             throw new FS.ErrnoError(55);
           }
           delete parent.contents[name];
-          parent.timestamp = Date.now();
-        },readdir:function(node) {
-          var entries = ['.', '..'];
-          for (var key in node.contents) {
-            if (!node.contents.hasOwnProperty(key)) {
-              continue;
-            }
-            entries.push(key);
-          }
-          return entries;
-        },symlink:function(parent, newname, oldpath) {
-          var node = MEMFS.createNode(parent, newname, 511  | 40960, 0);
+          parent.ctime = parent.mtime = Date.now();
+        },
+  readdir(node) {
+          return ['.', '..', ...Object.keys(node.contents)];
+        },
+  symlink(parent, newname, oldpath) {
+          var node = MEMFS.createNode(parent, newname, 0o777 | 40960, 0);
           node.link = oldpath;
           return node;
-        },readlink:function(node) {
+        },
+  readlink(node) {
           if (!FS.isLink(node.mode)) {
             throw new FS.ErrnoError(28);
           }
           return node.link;
-        }},stream_ops:{read:function(stream, buffer, offset, length, position) {
+        },
+  },
+  stream_ops:{
+  read(stream, buffer, offset, length, position) {
           var contents = stream.node.contents;
           if (position >= stream.node.usedBytes) return 0;
           var size = Math.min(stream.node.usedBytes - position, length);
@@ -2024,7 +1371,8 @@ var ASM_CONSTS = {
             for (var i = 0; i < size; i++) buffer[offset + i] = contents[position + i];
           }
           return size;
-        },write:function(stream, buffer, offset, length, position, canOwn) {
+        },
+  write(stream, buffer, offset, length, position, canOwn) {
           
           
           
@@ -2035,7 +1383,7 @@ var ASM_CONSTS = {
   
           if (!length) return 0;
           var node = stream.node;
-          node.timestamp = Date.now();
+          node.mtime = node.ctime = Date.now();
   
           if (buffer.subarray && (!node.contents || node.contents.subarray)) { 
             if (canOwn) {
@@ -2064,7 +1412,8 @@ var ASM_CONSTS = {
           }
           node.usedBytes = Math.max(node.usedBytes, position + length);
           return length;
-        },llseek:function(stream, offset, whence) {
+        },
+  llseek(stream, offset, whence) {
           var position = offset;
           if (whence === 1) {
             position += stream.position;
@@ -2077,14 +1426,12 @@ var ASM_CONSTS = {
             throw new FS.ErrnoError(28);
           }
           return position;
-        },allocate:function(stream, offset, length) {
+        },
+  allocate(stream, offset, length) {
           MEMFS.expandFileStorage(stream.node, offset + length);
           stream.node.usedBytes = Math.max(stream.node.usedBytes, offset + length);
-        },mmap:function(stream, address, length, position, prot, flags) {
-          if (address !== 0) {
-            
-            throw new FS.ErrnoError(28);
-          }
+        },
+  mmap(stream, length, position, prot, flags) {
           if (!FS.isFile(stream.node.mode)) {
             throw new FS.ErrnoError(43);
           }
@@ -2092,143 +1439,305 @@ var ASM_CONSTS = {
           var allocated;
           var contents = stream.node.contents;
           
-          if (!(flags & 2) && contents.buffer === buffer) {
+          if (!(flags & 2) && contents && contents.buffer === HEAP8.buffer) {
             
             
             allocated = false;
             ptr = contents.byteOffset;
           } else {
-            
-            if (position > 0 || position + length < contents.length) {
-              if (contents.subarray) {
-                contents = contents.subarray(position, position + length);
-              } else {
-                contents = Array.prototype.slice.call(contents, position, position + length);
-              }
-            }
             allocated = true;
             ptr = mmapAlloc(length);
             if (!ptr) {
               throw new FS.ErrnoError(48);
             }
-            HEAP8.set(contents, ptr);
+            if (contents) {
+              
+              if (position > 0 || position + length < contents.length) {
+                if (contents.subarray) {
+                  contents = contents.subarray(position, position + length);
+                } else {
+                  contents = Array.prototype.slice.call(contents, position, position + length);
+                }
+              }
+              HEAP8.set(contents, ptr);
+            }
           }
-          return { ptr: ptr, allocated: allocated };
-        },msync:function(stream, buffer, offset, length, mmapFlags) {
-          if (!FS.isFile(stream.node.mode)) {
-            throw new FS.ErrnoError(43);
-          }
-          if (mmapFlags & 2) {
-            
-            return 0;
-          }
-  
-          var bytesWritten = MEMFS.stream_ops.write(stream, buffer, 0, length, offset, false);
+          return { ptr, allocated };
+        },
+  msync(stream, buffer, offset, length, mmapFlags) {
+          MEMFS.stream_ops.write(stream, buffer, 0, length, offset, false);
           
           return 0;
-        }}};
+        },
+  },
+  };
+  
+  var asyncLoad = async (url) => {
+      var arrayBuffer = await readAsync(url);
+      return new Uint8Array(arrayBuffer);
+    };
   
   
-  function asyncLoad(url, onload, onerror, noRunDep) {
-      var dep = !noRunDep ? getUniqueRunDependency('al ' + url) : '';
-      readAsync(url, function(arrayBuffer) {
-        assert(arrayBuffer, 'Loading data file "' + url + '" failed (no arrayBuffer).');
-        onload(new Uint8Array(arrayBuffer));
-        if (dep) removeRunDependency(dep);
-      }, function(event) {
-        if (onerror) {
-          onerror();
-        } else {
-          throw 'Loading data file "' + url + '" failed.';
+  var FS_createDataFile = (parent, name, fileData, canRead, canWrite, canOwn) => {
+      FS.createDataFile(parent, name, fileData, canRead, canWrite, canOwn);
+    };
+  
+  var preloadPlugins = Module['preloadPlugins'] || [];
+  var FS_handledByPreloadPlugin = (byteArray, fullname, finish, onerror) => {
+      
+      if (typeof Browser != 'undefined') Browser.init();
+  
+      var handled = false;
+      preloadPlugins.forEach((plugin) => {
+        if (handled) return;
+        if (plugin['canHandle'](fullname)) {
+          plugin['handle'](byteArray, fullname, finish, onerror);
+          handled = true;
         }
       });
-      if (dep) addRunDependency(dep);
-    }
-  var FS = {root:null,mounts:[],devices:{},streams:[],nextInode:1,nameTable:null,currentPath:"/",initialized:false,ignorePermissions:true,ErrnoError:null,genericErrors:{},filesystems:null,syncFSRequests:0,lookupPath:(path, opts = {}) => {
-        path = PATH_FS.resolve(FS.cwd(), path);
+      return handled;
+    };
+  var FS_createPreloadedFile = (parent, name, url, canRead, canWrite, onload, onerror, dontCreateFile, canOwn, preFinish) => {
+      
+      
+      var fullname = name ? PATH_FS.resolve(PATH.join2(parent, name)) : parent;
+      var dep = getUniqueRunDependency(`cp ${fullname}`); 
+      function processData(byteArray) {
+        function finish(byteArray) {
+          preFinish?.();
+          if (!dontCreateFile) {
+            FS_createDataFile(parent, name, byteArray, canRead, canWrite, canOwn);
+          }
+          onload?.();
+          removeRunDependency(dep);
+        }
+        if (FS_handledByPreloadPlugin(byteArray, fullname, finish, () => {
+          onerror?.();
+          removeRunDependency(dep);
+        })) {
+          return;
+        }
+        finish(byteArray);
+      }
+      addRunDependency(dep);
+      if (typeof url == 'string') {
+        asyncLoad(url).then(processData, onerror);
+      } else {
+        processData(url);
+      }
+    };
   
+  var FS_modeStringToFlags = (str) => {
+      var flagModes = {
+        'r': 0,
+        'r+': 2,
+        'w': 512 | 64 | 1,
+        'w+': 512 | 64 | 2,
+        'a': 1024 | 64 | 1,
+        'a+': 1024 | 64 | 2,
+      };
+      var flags = flagModes[str];
+      if (typeof flags == 'undefined') {
+        throw new Error(`Unknown file open mode: ${str}`);
+      }
+      return flags;
+    };
+  
+  var FS_getMode = (canRead, canWrite) => {
+      var mode = 0;
+      if (canRead) mode |= 292 | 73;
+      if (canWrite) mode |= 146;
+      return mode;
+    };
+  
+  
+  
+  var FS = {
+  root:null,
+  mounts:[],
+  devices:{
+  },
+  streams:[],
+  nextInode:1,
+  nameTable:null,
+  currentPath:"/",
+  initialized:false,
+  ignorePermissions:true,
+  ErrnoError:class {
+        name = 'ErrnoError';
+        
+        
+        
+        
+        
+        
+        constructor(errno) {
+          this.errno = errno;
+        }
+      },
+  filesystems:null,
+  syncFSRequests:0,
+  readFiles:{
+  },
+  FSStream:class {
+        shared = {};
+        get object() {
+          return this.node;
+        }
+        set object(val) {
+          this.node = val;
+        }
+        get isRead() {
+          return (this.flags & 2097155) !== 1;
+        }
+        get isWrite() {
+          return (this.flags & 2097155) !== 0;
+        }
+        get isAppend() {
+          return (this.flags & 1024);
+        }
+        get flags() {
+          return this.shared.flags;
+        }
+        set flags(val) {
+          this.shared.flags = val;
+        }
+        get position() {
+          return this.shared.position;
+        }
+        set position(val) {
+          this.shared.position = val;
+        }
+      },
+  FSNode:class {
+        node_ops = {};
+        stream_ops = {};
+        readMode = 292 | 73;
+        writeMode = 146;
+        mounted = null;
+        constructor(parent, name, mode, rdev) {
+          if (!parent) {
+            parent = this;  
+          }
+          this.parent = parent;
+          this.mount = parent.mount;
+          this.id = FS.nextInode++;
+          this.name = name;
+          this.mode = mode;
+          this.rdev = rdev;
+          this.atime = this.mtime = this.ctime = Date.now();
+        }
+        get read() {
+          return (this.mode & this.readMode) === this.readMode;
+        }
+        set read(val) {
+          val ? this.mode |= this.readMode : this.mode &= ~this.readMode;
+        }
+        get write() {
+          return (this.mode & this.writeMode) === this.writeMode;
+        }
+        set write(val) {
+          val ? this.mode |= this.writeMode : this.mode &= ~this.writeMode;
+        }
+        get isFolder() {
+          return FS.isDir(this.mode);
+        }
+        get isDevice() {
+          return FS.isChrdev(this.mode);
+        }
+      },
+  lookupPath(path, opts = {}) {
         if (!path) return { path: '', node: null };
+        opts.follow_mount ??= true
   
-        var defaults = {
-          follow_mount: true,
-          recurse_count: 0
-        };
-        for (var key in defaults) {
-          if (opts[key] === undefined) {
-            opts[key] = defaults[key];
-          }
-        }
-  
-        if (opts.recurse_count > 8) {  
-          throw new FS.ErrnoError(32);
+        if (!PATH.isAbs(path)) {
+          path = FS.cwd() + '/' + path;
         }
   
         
-        var parts = PATH.normalizeArray(path.split('/').filter((p) => !!p), false);
-  
-        
-        var current = FS.root;
-        var current_path = '/';
-  
-        for (var i = 0; i < parts.length; i++) {
-          var islast = (i === parts.length-1);
-          if (islast && opts.parent) {
-            
-            break;
-          }
-  
-          current = FS.lookupNode(current, parts[i]);
-          current_path = PATH.join2(current_path, parts[i]);
+        linkloop: for (var nlinks = 0; nlinks < 40; nlinks++) {
+          
+          var parts = path.split('/').filter((p) => !!p && (p !== '.'));
   
           
-          if (FS.isMountpoint(current)) {
-            if (!islast || (islast && opts.follow_mount)) {
+          var current = FS.root;
+          var current_path = '/';
+  
+          for (var i = 0; i < parts.length; i++) {
+            var islast = (i === parts.length-1);
+            if (islast && opts.parent) {
+              
+              break;
+            }
+  
+            if (parts[i] === '..') {
+              current_path = PATH.dirname(current_path);
+              current = current.parent;
+              continue;
+            }
+  
+            current_path = PATH.join2(current_path, parts[i]);
+            try {
+              current = FS.lookupNode(current, parts[i]);
+            } catch (e) {
+              
+              
+              
+              if ((e?.errno === 44) && islast && opts.noent_okay) {
+                return { path: current_path };
+              }
+              throw e;
+            }
+  
+            
+            if (FS.isMountpoint(current) && (!islast || opts.follow_mount)) {
               current = current.mounted.root;
             }
-          }
   
-          
-          
-          if (!islast || opts.follow) {
-            var count = 0;
-            while (FS.isLink(current.mode)) {
-              var link = FS.readlink(current_path);
-              current_path = PATH_FS.resolve(PATH.dirname(current_path), link);
-  
-              var lookup = FS.lookupPath(current_path, { recurse_count: opts.recurse_count });
-              current = lookup.node;
-  
-              if (count++ > 40) {  
-                throw new FS.ErrnoError(32);
+            
+            
+            if (FS.isLink(current.mode) && (!islast || opts.follow)) {
+              if (!current.node_ops.readlink) {
+                throw new FS.ErrnoError(52);
               }
+              var link = current.node_ops.readlink(current);
+              if (!PATH.isAbs(link)) {
+                link = PATH.dirname(current_path) + '/' + link;
+              }
+              path = link + '/' + parts.slice(i + 1).join('/');
+              continue linkloop;
             }
           }
+          return { path: current_path, node: current };
         }
-  
-        return { path: current_path, node: current };
-      },getPath:(node) => {
+        throw new FS.ErrnoError(32);
+      },
+  getPath(node) {
         var path;
         while (true) {
           if (FS.isRoot(node)) {
             var mount = node.mount.mountpoint;
             if (!path) return mount;
-            return mount[mount.length-1] !== '/' ? mount + '/' + path : mount + path;
+            return mount[mount.length-1] !== '/' ? `${mount}/${path}` : mount + path;
           }
-          path = path ? node.name + '/' + path : node.name;
+          path = path ? `${node.name}/${path}` : node.name;
           node = node.parent;
         }
-      },hashName:(parentid, name) => {
+      },
+  hashName(parentid, name) {
         var hash = 0;
   
         for (var i = 0; i < name.length; i++) {
           hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
         }
         return ((parentid + hash) >>> 0) % FS.nameTable.length;
-      },hashAddNode:(node) => {
+      },
+  hashAddNode(node) {
         var hash = FS.hashName(node.parent.id, node.name);
         node.name_next = FS.nameTable[hash];
         FS.nameTable[hash] = node;
-      },hashRemoveNode:(node) => {
+      },
+  hashRemoveNode(node) {
         var hash = FS.hashName(node.parent.id, node.name);
         if (FS.nameTable[hash] === node) {
           FS.nameTable[hash] = node.name_next;
@@ -2242,10 +1751,11 @@ var ASM_CONSTS = {
             current = current.name_next;
           }
         }
-      },lookupNode:(parent, name) => {
+      },
+  lookupNode(parent, name) {
         var errCode = FS.mayLookup(parent);
         if (errCode) {
-          throw new FS.ErrnoError(errCode, parent);
+          throw new FS.ErrnoError(errCode);
         }
         var hash = FS.hashName(parent.id, name);
         for (var node = FS.nameTable[hash]; node; node = node.name_next) {
@@ -2256,45 +1766,52 @@ var ASM_CONSTS = {
         }
         
         return FS.lookup(parent, name);
-      },createNode:(parent, name, mode, rdev) => {
+      },
+  createNode(parent, name, mode, rdev) {
         var node = new FS.FSNode(parent, name, mode, rdev);
   
         FS.hashAddNode(node);
   
         return node;
-      },destroyNode:(node) => {
+      },
+  destroyNode(node) {
         FS.hashRemoveNode(node);
-      },isRoot:(node) => {
+      },
+  isRoot(node) {
         return node === node.parent;
-      },isMountpoint:(node) => {
+      },
+  isMountpoint(node) {
         return !!node.mounted;
-      },isFile:(mode) => {
+      },
+  isFile(mode) {
         return (mode & 61440) === 32768;
-      },isDir:(mode) => {
+      },
+  isDir(mode) {
         return (mode & 61440) === 16384;
-      },isLink:(mode) => {
+      },
+  isLink(mode) {
         return (mode & 61440) === 40960;
-      },isChrdev:(mode) => {
+      },
+  isChrdev(mode) {
         return (mode & 61440) === 8192;
-      },isBlkdev:(mode) => {
+      },
+  isBlkdev(mode) {
         return (mode & 61440) === 24576;
-      },isFIFO:(mode) => {
+      },
+  isFIFO(mode) {
         return (mode & 61440) === 4096;
-      },isSocket:(mode) => {
+      },
+  isSocket(mode) {
         return (mode & 49152) === 49152;
-      },flagModes:{"r":0,"r+":2,"w":577,"w+":578,"a":1089,"a+":1090},modeStringToFlags:(str) => {
-        var flags = FS.flagModes[str];
-        if (typeof flags == 'undefined') {
-          throw new Error('Unknown file open mode: ' + str);
-        }
-        return flags;
-      },flagsToPermissionString:(flag) => {
+      },
+  flagsToPermissionString(flag) {
         var perms = ['r', 'w', 'rw'][flag & 3];
         if ((flag & 512)) {
           perms += 'w';
         }
         return perms;
-      },nodePermissions:(node, perms) => {
+      },
+  nodePermissions(node, perms) {
         if (FS.ignorePermissions) {
           return 0;
         }
@@ -2307,19 +1824,26 @@ var ASM_CONSTS = {
           return 2;
         }
         return 0;
-      },mayLookup:(dir) => {
+      },
+  mayLookup(dir) {
+        if (!FS.isDir(dir.mode)) return 54;
         var errCode = FS.nodePermissions(dir, 'x');
         if (errCode) return errCode;
         if (!dir.node_ops.lookup) return 2;
         return 0;
-      },mayCreate:(dir, name) => {
+      },
+  mayCreate(dir, name) {
+        if (!FS.isDir(dir.mode)) {
+          return 54;
+        }
         try {
           var node = FS.lookupNode(dir, name);
           return 20;
         } catch (e) {
         }
         return FS.nodePermissions(dir, 'wx');
-      },mayDelete:(dir, name, isdir) => {
+      },
+  mayDelete(dir, name, isdir) {
         var node;
         try {
           node = FS.lookupNode(dir, name);
@@ -2343,7 +1867,8 @@ var ASM_CONSTS = {
           }
         }
         return 0;
-      },mayOpen:(node, flags) => {
+      },
+  mayOpen(node, flags) {
         if (!node) {
           return 44;
         }
@@ -2356,53 +1881,63 @@ var ASM_CONSTS = {
           }
         }
         return FS.nodePermissions(node, FS.flagsToPermissionString(flags));
-      },MAX_OPEN_FDS:4096,nextfd:(fd_start = 0, fd_end = FS.MAX_OPEN_FDS) => {
-        for (var fd = fd_start; fd <= fd_end; fd++) {
+      },
+  MAX_OPEN_FDS:4096,
+  nextfd() {
+        for (var fd = 0; fd <= FS.MAX_OPEN_FDS; fd++) {
           if (!FS.streams[fd]) {
             return fd;
           }
         }
         throw new FS.ErrnoError(33);
-      },getStream:(fd) => FS.streams[fd],createStream:(stream, fd_start, fd_end) => {
-        if (!FS.FSStream) {
-          FS.FSStream =  function(){};
-          FS.FSStream.prototype = {
-            object: {
-              get: function() { return this.node; },
-              set: function(val) { this.node = val; }
-            },
-            isRead: {
-              get: function() { return (this.flags & 2097155) !== 1; }
-            },
-            isWrite: {
-              get: function() { return (this.flags & 2097155) !== 0; }
-            },
-            isAppend: {
-              get: function() { return (this.flags & 1024); }
-            }
-          };
+      },
+  getStreamChecked(fd) {
+        var stream = FS.getStream(fd);
+        if (!stream) {
+          throw new FS.ErrnoError(8);
         }
+        return stream;
+      },
+  getStream:(fd) => FS.streams[fd],
+  createStream(stream, fd = -1) {
+  
         
         stream = Object.assign(new FS.FSStream(), stream);
-        var fd = FS.nextfd(fd_start, fd_end);
+        if (fd == -1) {
+          fd = FS.nextfd();
+        }
         stream.fd = fd;
         FS.streams[fd] = stream;
         return stream;
-      },closeStream:(fd) => {
+      },
+  closeStream(fd) {
         FS.streams[fd] = null;
-      },chrdev_stream_ops:{open:(stream) => {
+      },
+  dupStream(origStream, fd = -1) {
+        var stream = FS.createStream(origStream, fd);
+        stream.stream_ops?.dup?.(stream);
+        return stream;
+      },
+  chrdev_stream_ops:{
+  open(stream) {
           var device = FS.getDevice(stream.node.rdev);
           
           stream.stream_ops = device.stream_ops;
           
-          if (stream.stream_ops.open) {
-            stream.stream_ops.open(stream);
-          }
-        },llseek:() => {
+          stream.stream_ops.open?.(stream);
+        },
+  llseek() {
           throw new FS.ErrnoError(70);
-        }},major:(dev) => ((dev) >> 8),minor:(dev) => ((dev) & 0xff),makedev:(ma, mi) => ((ma) << 8 | (mi)),registerDevice:(dev, ops) => {
+        },
+  },
+  major:(dev) => ((dev) >> 8),
+  minor:(dev) => ((dev) & 0xff),
+  makedev:(ma, mi) => ((ma) << 8 | (mi)),
+  registerDevice(dev, ops) {
         FS.devices[dev] = { stream_ops: ops };
-      },getDevice:(dev) => FS.devices[dev],getMounts:(mount) => {
+      },
+  getDevice:(dev) => FS.devices[dev],
+  getMounts(mount) {
         var mounts = [];
         var check = [mount];
   
@@ -2411,11 +1946,12 @@ var ASM_CONSTS = {
   
           mounts.push(m);
   
-          check.push.apply(check, m.mounts);
+          check.push(...m.mounts);
         }
   
         return mounts;
-      },syncfs:(populate, callback) => {
+      },
+  syncfs(populate, callback) {
         if (typeof populate == 'function') {
           callback = populate;
           populate = false;
@@ -2424,7 +1960,7 @@ var ASM_CONSTS = {
         FS.syncFSRequests++;
   
         if (FS.syncFSRequests > 1) {
-          err('warning: ' + FS.syncFSRequests + ' FS.syncfs operations in flight at once, probably just doing extra work');
+          err(`warning: ${FS.syncFSRequests} FS.syncfs operations in flight at once, probably just doing extra work`);
         }
   
         var mounts = FS.getMounts(FS.root.mount);
@@ -2455,7 +1991,8 @@ var ASM_CONSTS = {
           }
           mount.type.syncfs(mount, populate, done);
         });
-      },mount:(type, opts, mountpoint) => {
+      },
+  mount(type, opts, mountpoint) {
         var root = mountpoint === '/';
         var pseudo = !mountpoint;
         var node;
@@ -2478,9 +2015,9 @@ var ASM_CONSTS = {
         }
   
         var mount = {
-          type: type,
-          opts: opts,
-          mountpoint: mountpoint,
+          type,
+          opts,
+          mountpoint,
           mounts: []
         };
   
@@ -2502,7 +2039,8 @@ var ASM_CONSTS = {
         }
   
         return mountRoot;
-      },unmount:(mountpoint) => {
+      },
+  unmount(mountpoint) {
         var lookup = FS.lookupPath(mountpoint, { follow_mount: false });
   
         if (!FS.isMountpoint(lookup.node)) {
@@ -2534,9 +2072,11 @@ var ASM_CONSTS = {
         
         var idx = node.mount.mounts.indexOf(mount);
         node.mount.mounts.splice(idx, 1);
-      },lookup:(parent, name) => {
+      },
+  lookup(parent, name) {
         return parent.node_ops.lookup(parent, name);
-      },mknod:(path, mode, dev) => {
+      },
+  mknod(path, mode, dev) {
         var lookup = FS.lookupPath(path, { parent: true });
         var parent = lookup.node;
         var name = PATH.basename(path);
@@ -2551,17 +2091,41 @@ var ASM_CONSTS = {
           throw new FS.ErrnoError(63);
         }
         return parent.node_ops.mknod(parent, name, mode, dev);
-      },create:(path, mode) => {
-        mode = mode !== undefined ? mode : 438 ;
+      },
+  statfs(path) {
+  
+        
+        
+        var rtn = {
+          bsize: 4096,
+          frsize: 4096,
+          blocks: 1e6,
+          bfree: 5e5,
+          bavail: 5e5,
+          files: FS.nextInode,
+          ffree: FS.nextInode - 1,
+          fsid: 42,
+          flags: 2,
+          namelen: 255,
+        };
+  
+        var parent = FS.lookupPath(path, {follow: true}).node;
+        if (parent?.node_ops.statfs) {
+          Object.assign(rtn, parent.node_ops.statfs(parent.mount.opts.root));
+        }
+        return rtn;
+      },
+  create(path, mode = 0o666) {
         mode &= 4095;
         mode |= 32768;
         return FS.mknod(path, mode, 0);
-      },mkdir:(path, mode) => {
-        mode = mode !== undefined ? mode : 511 ;
+      },
+  mkdir(path, mode = 0o777) {
         mode &= 511 | 512;
         mode |= 16384;
         return FS.mknod(path, mode, 0);
-      },mkdirTree:(path, mode) => {
+      },
+  mkdirTree(path, mode) {
         var dirs = path.split('/');
         var d = '';
         for (var i = 0; i < dirs.length; ++i) {
@@ -2573,14 +2137,16 @@ var ASM_CONSTS = {
             if (e.errno != 20) throw e;
           }
         }
-      },mkdev:(path, mode, dev) => {
+      },
+  mkdev(path, mode, dev) {
         if (typeof dev == 'undefined') {
           dev = mode;
-          mode = 438 ;
+          mode = 0o666;
         }
         mode |= 8192;
         return FS.mknod(path, mode, dev);
-      },symlink:(oldpath, newpath) => {
+      },
+  symlink(oldpath, newpath) {
         if (!PATH_FS.resolve(oldpath)) {
           throw new FS.ErrnoError(44);
         }
@@ -2598,7 +2164,8 @@ var ASM_CONSTS = {
           throw new FS.ErrnoError(63);
         }
         return parent.node_ops.symlink(parent, newname, oldpath);
-      },rename:(old_path, new_path) => {
+      },
+  rename(old_path, new_path) {
         var old_dirname = PATH.dirname(old_path);
         var new_dirname = PATH.dirname(new_path);
         var old_name = PATH.basename(old_path);
@@ -2672,6 +2239,9 @@ var ASM_CONSTS = {
         
         try {
           old_dir.node_ops.rename(old_node, new_dir, new_name);
+          
+          
+          old_node.parent = new_dir;
         } catch (e) {
           throw e;
         } finally {
@@ -2679,7 +2249,8 @@ var ASM_CONSTS = {
           
           FS.hashAddNode(old_node);
         }
-      },rmdir:(path) => {
+      },
+  rmdir(path) {
         var lookup = FS.lookupPath(path, { parent: true });
         var parent = lookup.node;
         var name = PATH.basename(path);
@@ -2696,14 +2267,16 @@ var ASM_CONSTS = {
         }
         parent.node_ops.rmdir(parent, name);
         FS.destroyNode(node);
-      },readdir:(path) => {
+      },
+  readdir(path) {
         var lookup = FS.lookupPath(path, { follow: true });
         var node = lookup.node;
         if (!node.node_ops.readdir) {
           throw new FS.ErrnoError(54);
         }
         return node.node_ops.readdir(node);
-      },unlink:(path) => {
+      },
+  unlink(path) {
         var lookup = FS.lookupPath(path, { parent: true });
         var parent = lookup.node;
         if (!parent) {
@@ -2726,7 +2299,8 @@ var ASM_CONSTS = {
         }
         parent.node_ops.unlink(parent, name);
         FS.destroyNode(node);
-      },readlink:(path) => {
+      },
+  readlink(path) {
         var lookup = FS.lookupPath(path);
         var link = lookup.node;
         if (!link) {
@@ -2735,8 +2309,9 @@ var ASM_CONSTS = {
         if (!link.node_ops.readlink) {
           throw new FS.ErrnoError(28);
         }
-        return PATH_FS.resolve(FS.getPath(link.parent), link.node_ops.readlink(link));
-      },stat:(path, dontFollow) => {
+        return link.node_ops.readlink(link);
+      },
+  stat(path, dontFollow) {
         var lookup = FS.lookupPath(path, { follow: !dontFollow });
         var node = lookup.node;
         if (!node) {
@@ -2746,9 +2321,11 @@ var ASM_CONSTS = {
           throw new FS.ErrnoError(63);
         }
         return node.node_ops.getattr(node);
-      },lstat:(path) => {
+      },
+  lstat(path) {
         return FS.stat(path, true);
-      },chmod:(path, mode, dontFollow) => {
+      },
+  chmod(path, mode, dontFollow) {
         var node;
         if (typeof path == 'string') {
           var lookup = FS.lookupPath(path, { follow: !dontFollow });
@@ -2761,17 +2338,17 @@ var ASM_CONSTS = {
         }
         node.node_ops.setattr(node, {
           mode: (mode & 4095) | (node.mode & ~4095),
-          timestamp: Date.now()
+          ctime: Date.now()
         });
-      },lchmod:(path, mode) => {
+      },
+  lchmod(path, mode) {
         FS.chmod(path, mode, true);
-      },fchmod:(fd, mode) => {
-        var stream = FS.getStream(fd);
-        if (!stream) {
-          throw new FS.ErrnoError(8);
-        }
+      },
+  fchmod(fd, mode) {
+        var stream = FS.getStreamChecked(fd);
         FS.chmod(stream.node, mode);
-      },chown:(path, uid, gid, dontFollow) => {
+      },
+  chown(path, uid, gid, dontFollow) {
         var node;
         if (typeof path == 'string') {
           var lookup = FS.lookupPath(path, { follow: !dontFollow });
@@ -2786,15 +2363,15 @@ var ASM_CONSTS = {
           timestamp: Date.now()
           
         });
-      },lchown:(path, uid, gid) => {
+      },
+  lchown(path, uid, gid) {
         FS.chown(path, uid, gid, true);
-      },fchown:(fd, uid, gid) => {
-        var stream = FS.getStream(fd);
-        if (!stream) {
-          throw new FS.ErrnoError(8);
-        }
+      },
+  fchown(fd, uid, gid) {
+        var stream = FS.getStreamChecked(fd);
         FS.chown(stream.node, uid, gid);
-      },truncate:(path, len) => {
+      },
+  truncate(path, len) {
         if (len < 0) {
           throw new FS.ErrnoError(28);
         }
@@ -2822,27 +2399,27 @@ var ASM_CONSTS = {
           size: len,
           timestamp: Date.now()
         });
-      },ftruncate:(fd, len) => {
-        var stream = FS.getStream(fd);
-        if (!stream) {
-          throw new FS.ErrnoError(8);
-        }
+      },
+  ftruncate(fd, len) {
+        var stream = FS.getStreamChecked(fd);
         if ((stream.flags & 2097155) === 0) {
           throw new FS.ErrnoError(28);
         }
         FS.truncate(stream.node, len);
-      },utime:(path, atime, mtime) => {
+      },
+  utime(path, atime, mtime) {
         var lookup = FS.lookupPath(path, { follow: true });
         var node = lookup.node;
         node.node_ops.setattr(node, {
-          timestamp: Math.max(atime, mtime)
+          atime: atime,
+          mtime: mtime
         });
-      },open:(path, flags, mode, fd_start, fd_end) => {
+      },
+  open(path, flags, mode = 0o666) {
         if (path === "") {
           throw new FS.ErrnoError(44);
         }
-        flags = typeof flags == 'string' ? FS.modeStringToFlags(flags) : flags;
-        mode = typeof mode == 'undefined' ? 438  : mode;
+        flags = typeof flags == 'string' ? FS_modeStringToFlags(flags) : flags;
         if ((flags & 64)) {
           mode = (mode & 4095) | 32768;
         } else {
@@ -2852,15 +2429,15 @@ var ASM_CONSTS = {
         if (typeof path == 'object') {
           node = path;
         } else {
-          path = PATH.normalize(path);
-          try {
-            var lookup = FS.lookupPath(path, {
-              follow: !(flags & 131072)
-            });
-            node = lookup.node;
-          } catch (e) {
-            
-          }
+          
+          
+          
+          var lookup = FS.lookupPath(path, {
+            follow: !(flags & 131072),
+            noent_okay: true
+          });
+          node = lookup.node;
+          path = lookup.path;
         }
         
         var created = false;
@@ -2897,7 +2474,7 @@ var ASM_CONSTS = {
           }
         }
         
-        if ((flags & 512)) {
+        if ((flags & 512) && !created) {
           FS.truncate(node, 0);
         }
         
@@ -2905,28 +2482,28 @@ var ASM_CONSTS = {
   
         
         var stream = FS.createStream({
-          node: node,
+          node,
           path: FS.getPath(node),  
-          flags: flags,
+          flags,
           seekable: true,
           position: 0,
           stream_ops: node.stream_ops,
           
           ungotten: [],
           error: false
-        }, fd_start, fd_end);
+        });
         
         if (stream.stream_ops.open) {
           stream.stream_ops.open(stream);
         }
         if (Module['logReadFiles'] && !(flags & 1)) {
-          if (!FS.readFiles) FS.readFiles = {};
           if (!(path in FS.readFiles)) {
             FS.readFiles[path] = 1;
           }
         }
         return stream;
-      },close:(stream) => {
+      },
+  close(stream) {
         if (FS.isClosed(stream)) {
           throw new FS.ErrnoError(8);
         }
@@ -2941,9 +2518,11 @@ var ASM_CONSTS = {
           FS.closeStream(stream.fd);
         }
         stream.fd = null;
-      },isClosed:(stream) => {
+      },
+  isClosed(stream) {
         return stream.fd === null;
-      },llseek:(stream, offset, whence) => {
+      },
+  llseek(stream, offset, whence) {
         if (FS.isClosed(stream)) {
           throw new FS.ErrnoError(8);
         }
@@ -2956,7 +2535,8 @@ var ASM_CONSTS = {
         stream.position = stream.stream_ops.llseek(stream, offset, whence);
         stream.ungotten = [];
         return stream.position;
-      },read:(stream, buffer, offset, length, position) => {
+      },
+  read(stream, buffer, offset, length, position) {
         if (length < 0 || position < 0) {
           throw new FS.ErrnoError(28);
         }
@@ -2981,7 +2561,8 @@ var ASM_CONSTS = {
         var bytesRead = stream.stream_ops.read(stream, buffer, offset, length, position);
         if (!seeking) stream.position += bytesRead;
         return bytesRead;
-      },write:(stream, buffer, offset, length, position, canOwn) => {
+      },
+  write(stream, buffer, offset, length, position, canOwn) {
         if (length < 0 || position < 0) {
           throw new FS.ErrnoError(28);
         }
@@ -3010,7 +2591,8 @@ var ASM_CONSTS = {
         var bytesWritten = stream.stream_ops.write(stream, buffer, offset, length, position, canOwn);
         if (!seeking) stream.position += bytesWritten;
         return bytesWritten;
-      },allocate:(stream, offset, length) => {
+      },
+  allocate(stream, offset, length) {
         if (FS.isClosed(stream)) {
           throw new FS.ErrnoError(8);
         }
@@ -3027,7 +2609,8 @@ var ASM_CONSTS = {
           throw new FS.ErrnoError(138);
         }
         stream.stream_ops.allocate(stream, offset, length);
-      },mmap:(stream, address, length, position, prot, flags) => {
+      },
+  mmap(stream, length, position, prot, flags) {
         
         
         
@@ -3045,22 +2628,28 @@ var ASM_CONSTS = {
         if (!stream.stream_ops.mmap) {
           throw new FS.ErrnoError(43);
         }
-        return stream.stream_ops.mmap(stream, address, length, position, prot, flags);
-      },msync:(stream, buffer, offset, length, mmapFlags) => {
-        if (!stream || !stream.stream_ops.msync) {
+        if (!length) {
+          throw new FS.ErrnoError(28);
+        }
+        return stream.stream_ops.mmap(stream, length, position, prot, flags);
+      },
+  msync(stream, buffer, offset, length, mmapFlags) {
+        if (!stream.stream_ops.msync) {
           return 0;
         }
         return stream.stream_ops.msync(stream, buffer, offset, length, mmapFlags);
-      },munmap:(stream) => 0,ioctl:(stream, cmd, arg) => {
+      },
+  ioctl(stream, cmd, arg) {
         if (!stream.stream_ops.ioctl) {
           throw new FS.ErrnoError(59);
         }
         return stream.stream_ops.ioctl(stream, cmd, arg);
-      },readFile:(path, opts = {}) => {
+      },
+  readFile(path, opts = {}) {
         opts.flags = opts.flags || 0;
         opts.encoding = opts.encoding || 'binary';
         if (opts.encoding !== 'utf8' && opts.encoding !== 'binary') {
-          throw new Error('Invalid encoding type "' + opts.encoding + '"');
+          throw new Error(`Invalid encoding type "${opts.encoding}"`);
         }
         var ret;
         var stream = FS.open(path, opts.flags);
@@ -3069,13 +2658,14 @@ var ASM_CONSTS = {
         var buf = new Uint8Array(length);
         FS.read(stream, buf, 0, length, 0);
         if (opts.encoding === 'utf8') {
-          ret = UTF8ArrayToString(buf, 0);
+          ret = UTF8ArrayToString(buf);
         } else if (opts.encoding === 'binary') {
           ret = buf;
         }
         FS.close(stream);
         return ret;
-      },writeFile:(path, data, opts = {}) => {
+      },
+  writeFile(path, data, opts = {}) {
         opts.flags = opts.flags || 577;
         var stream = FS.open(path, opts.flags, opts.mode);
         if (typeof data == 'string') {
@@ -3088,7 +2678,9 @@ var ASM_CONSTS = {
           throw new Error('Unsupported data type');
         }
         FS.close(stream);
-      },cwd:() => FS.currentPath,chdir:(path) => {
+      },
+  cwd:() => FS.currentPath,
+  chdir(path) {
         var lookup = FS.lookupPath(path, { follow: true });
         if (lookup.node === null) {
           throw new FS.ErrnoError(44);
@@ -3101,17 +2693,20 @@ var ASM_CONSTS = {
           throw new FS.ErrnoError(errCode);
         }
         FS.currentPath = lookup.path;
-      },createDefaultDirectories:() => {
+      },
+  createDefaultDirectories() {
         FS.mkdir('/tmp');
         FS.mkdir('/home');
         FS.mkdir('/home/web_user');
-      },createDefaultDevices:() => {
+      },
+  createDefaultDevices() {
         
         FS.mkdir('/dev');
         
         FS.registerDevice(FS.makedev(1, 3), {
           read: () => 0,
           write: (stream, buffer, offset, length, pos) => length,
+          llseek: () => 0,
         });
         FS.mkdev('/dev/null', FS.makedev(1, 3));
         
@@ -3122,40 +2717,57 @@ var ASM_CONSTS = {
         FS.mkdev('/dev/tty', FS.makedev(5, 0));
         FS.mkdev('/dev/tty1', FS.makedev(6, 0));
         
-        var random_device = getRandomDevice();
-        FS.createDevice('/dev', 'random', random_device);
-        FS.createDevice('/dev', 'urandom', random_device);
+        
+        var randomBuffer = new Uint8Array(1024), randomLeft = 0;
+        var randomByte = () => {
+          if (randomLeft === 0) {
+            randomLeft = randomFill(randomBuffer).byteLength;
+          }
+          return randomBuffer[--randomLeft];
+        };
+        FS.createDevice('/dev', 'random', randomByte);
+        FS.createDevice('/dev', 'urandom', randomByte);
         
         
         FS.mkdir('/dev/shm');
         FS.mkdir('/dev/shm/tmp');
-      },createSpecialDirectories:() => {
+      },
+  createSpecialDirectories() {
         
         
         FS.mkdir('/proc');
         var proc_self = FS.mkdir('/proc/self');
         FS.mkdir('/proc/self/fd');
         FS.mount({
-          mount: () => {
-            var node = FS.createNode(proc_self, 'fd', 16384 | 511 , 73);
+          mount() {
+            var node = FS.createNode(proc_self, 'fd', 16895, 73);
+            node.stream_ops = {
+              llseek: MEMFS.stream_ops.llseek,
+            };
             node.node_ops = {
-              lookup: (parent, name) => {
+              lookup(parent, name) {
                 var fd = +name;
-                var stream = FS.getStream(fd);
-                if (!stream) throw new FS.ErrnoError(8);
+                var stream = FS.getStreamChecked(fd);
                 var ret = {
                   parent: null,
                   mount: { mountpoint: 'fake' },
                   node_ops: { readlink: () => stream.path },
+                  id: fd + 1,
                 };
                 ret.parent = ret; 
                 return ret;
+              },
+              readdir() {
+                return Array.from(FS.streams.entries())
+                  .filter(([k, v]) => v)
+                  .map(([k, v]) => k.toString());
               }
             };
             return node;
           }
         }, {}, '/proc/self/fd');
-      },createStandardStreams:() => {
+      },
+  createStandardStreams(input, output, error) {
         
         
         
@@ -3164,18 +2776,18 @@ var ASM_CONSTS = {
         
         
         
-        if (Module['stdin']) {
-          FS.createDevice('/dev', 'stdin', Module['stdin']);
+        if (input) {
+          FS.createDevice('/dev', 'stdin', input);
         } else {
           FS.symlink('/dev/tty', '/dev/stdin');
         }
-        if (Module['stdout']) {
-          FS.createDevice('/dev', 'stdout', null, Module['stdout']);
+        if (output) {
+          FS.createDevice('/dev', 'stdout', null, output);
         } else {
           FS.symlink('/dev/tty', '/dev/stdout');
         }
-        if (Module['stderr']) {
-          FS.createDevice('/dev', 'stderr', null, Module['stderr']);
+        if (error) {
+          FS.createDevice('/dev', 'stderr', null, error);
         } else {
           FS.symlink('/dev/tty1', '/dev/stderr');
         }
@@ -3184,27 +2796,8 @@ var ASM_CONSTS = {
         var stdin = FS.open('/dev/stdin', 0);
         var stdout = FS.open('/dev/stdout', 1);
         var stderr = FS.open('/dev/stderr', 1);
-      },ensureErrnoError:() => {
-        if (FS.ErrnoError) return;
-        FS.ErrnoError =  function ErrnoError(errno, node) {
-          this.node = node;
-          this.setErrno =  function(errno) {
-            this.errno = errno;
-          };
-          this.setErrno(errno);
-          this.message = 'FS error';
-  
-        };
-        FS.ErrnoError.prototype = new Error();
-        FS.ErrnoError.prototype.constructor = FS.ErrnoError;
-        
-        [44].forEach((code) => {
-          FS.genericErrors[code] = new FS.ErrnoError(code);
-          FS.genericErrors[code].stack = '<generic error, no stack>';
-        });
-      },staticInit:() => {
-        FS.ensureErrnoError();
-  
+      },
+  staticInit() {
         FS.nameTable = new Array(4096);
   
         FS.mount(MEMFS, {}, '/');
@@ -3216,20 +2809,19 @@ var ASM_CONSTS = {
         FS.filesystems = {
           'MEMFS': MEMFS,
         };
-      },init:(input, output, error) => {
-        FS.init.initialized = true;
-  
-        FS.ensureErrnoError();
+      },
+  init(input, output, error) {
+        FS.initialized = true;
   
         
-        Module['stdin'] = input || Module['stdin'];
-        Module['stdout'] = output || Module['stdout'];
-        Module['stderr'] = error || Module['stderr'];
+        input ??= Module['stdin'];
+        output ??= Module['stdout'];
+        error ??= Module['stderr'];
   
-        FS.createStandardStreams();
-      },quit:() => {
-        FS.init.initialized = false;
-        
+        FS.createStandardStreams(input, output, error);
+      },
+  quit() {
+        FS.initialized = false;
         
         
         for (var i = 0; i < FS.streams.length; i++) {
@@ -3239,19 +2831,15 @@ var ASM_CONSTS = {
           }
           FS.close(stream);
         }
-      },getMode:(canRead, canWrite) => {
-        var mode = 0;
-        if (canRead) mode |= 292 | 73;
-        if (canWrite) mode |= 146;
-        return mode;
-      },findObject:(path, dontResolveLastLink) => {
+      },
+  findObject(path, dontResolveLastLink) {
         var ret = FS.analyzePath(path, dontResolveLastLink);
-        if (ret.exists) {
-          return ret.object;
-        } else {
+        if (!ret.exists) {
           return null;
         }
-      },analyzePath:(path, dontResolveLastLink) => {
+        return ret.object;
+      },
+  analyzePath(path, dontResolveLastLink) {
         
         try {
           var lookup = FS.lookupPath(path, { follow: !dontResolveLastLink });
@@ -3278,7 +2866,8 @@ var ASM_CONSTS = {
           ret.error = e.errno;
         };
         return ret;
-      },createPath:(parent, path, canRead, canWrite) => {
+      },
+  createPath(parent, path, canRead, canWrite) {
         parent = typeof parent == 'string' ? parent : FS.getPath(parent);
         var parts = path.split('/').reverse();
         while (parts.length) {
@@ -3293,17 +2882,19 @@ var ASM_CONSTS = {
           parent = current;
         }
         return current;
-      },createFile:(parent, name, properties, canRead, canWrite) => {
+      },
+  createFile(parent, name, properties, canRead, canWrite) {
         var path = PATH.join2(typeof parent == 'string' ? parent : FS.getPath(parent), name);
-        var mode = FS.getMode(canRead, canWrite);
+        var mode = FS_getMode(canRead, canWrite);
         return FS.create(path, mode);
-      },createDataFile:(parent, name, data, canRead, canWrite, canOwn) => {
+      },
+  createDataFile(parent, name, data, canRead, canWrite, canOwn) {
         var path = name;
         if (parent) {
           parent = typeof parent == 'string' ? parent : FS.getPath(parent);
           path = name ? PATH.join2(parent, name) : parent;
         }
-        var mode = FS.getMode(canRead, canWrite);
+        var mode = FS_getMode(canRead, canWrite);
         var node = FS.create(path, mode);
         if (data) {
           if (typeof data == 'string') {
@@ -3318,25 +2909,25 @@ var ASM_CONSTS = {
           FS.close(stream);
           FS.chmod(node, mode);
         }
-        return node;
-      },createDevice:(parent, name, input, output) => {
+      },
+  createDevice(parent, name, input, output) {
         var path = PATH.join2(typeof parent == 'string' ? parent : FS.getPath(parent), name);
-        var mode = FS.getMode(!!input, !!output);
-        if (!FS.createDevice.major) FS.createDevice.major = 64;
+        var mode = FS_getMode(!!input, !!output);
+        FS.createDevice.major ??= 64;
         var dev = FS.makedev(FS.createDevice.major++, 0);
         
         
         FS.registerDevice(dev, {
-          open: (stream) => {
+          open(stream) {
             stream.seekable = false;
           },
-          close: (stream) => {
+          close(stream) {
             
-            if (output && output.buffer && output.buffer.length) {
+            if (output?.buffer?.length) {
               output(10);
             }
           },
-          read: (stream, buffer, offset, length, pos ) => {
+          read(stream, buffer, offset, length, pos ) {
             var bytesRead = 0;
             for (var i = 0; i < length; i++) {
               var result;
@@ -3353,11 +2944,11 @@ var ASM_CONSTS = {
               buffer[offset+i] = result;
             }
             if (bytesRead) {
-              stream.node.timestamp = Date.now();
+              stream.node.atime = Date.now();
             }
             return bytesRead;
           },
-          write: (stream, buffer, offset, length, pos) => {
+          write(stream, buffer, offset, length, pos) {
             for (var i = 0; i < length; i++) {
               try {
                 output(buffer[offset+i]);
@@ -3366,132 +2957,122 @@ var ASM_CONSTS = {
               }
             }
             if (length) {
-              stream.node.timestamp = Date.now();
+              stream.node.mtime = stream.node.ctime = Date.now();
             }
             return i;
           }
         });
         return FS.mkdev(path, mode, dev);
-      },forceLoadFile:(obj) => {
+      },
+  forceLoadFile(obj) {
         if (obj.isDevice || obj.isFolder || obj.link || obj.contents) return true;
         if (typeof XMLHttpRequest != 'undefined') {
           throw new Error("Lazy loading should have been performed (contents set) in createLazyFile, but it was not. Lazy loading only works in web workers. Use --embed-file or --preload-file in emcc on the main thread.");
-        } else if (read_) {
-          
+        } else { 
           try {
-            
-            
-            obj.contents = intArrayFromString(read_(obj.url), true);
+            obj.contents = readBinary(obj.url);
             obj.usedBytes = obj.contents.length;
           } catch (e) {
             throw new FS.ErrnoError(29);
           }
-        } else {
-          throw new Error('Cannot load without read() or XMLHttpRequest.');
         }
-      },createLazyFile:(parent, name, url, canRead, canWrite) => {
+      },
+  createLazyFile(parent, name, url, canRead, canWrite) {
         
         
-        function LazyUint8Array() {
-          this.lengthKnown = false;
-          this.chunks = []; 
-        }
-        LazyUint8Array.prototype.get =  function LazyUint8Array_get(idx) {
-          if (idx > this.length-1 || idx < 0) {
-            return undefined;
+        class LazyUint8Array {
+          lengthKnown = false;
+          chunks = []; 
+          get(idx) {
+            if (idx > this.length-1 || idx < 0) {
+              return undefined;
+            }
+            var chunkOffset = idx % this.chunkSize;
+            var chunkNum = (idx / this.chunkSize)|0;
+            return this.getter(chunkNum)[chunkOffset];
           }
-          var chunkOffset = idx % this.chunkSize;
-          var chunkNum = (idx / this.chunkSize)|0;
-          return this.getter(chunkNum)[chunkOffset];
-        };
-        LazyUint8Array.prototype.setDataGetter = function LazyUint8Array_setDataGetter(getter) {
-          this.getter = getter;
-        };
-        LazyUint8Array.prototype.cacheLength = function LazyUint8Array_cacheLength() {
-          
-          var xhr = new XMLHttpRequest();
-          xhr.open('HEAD', url, false);
-          xhr.send(null);
-          if (!(xhr.status >= 200 && xhr.status < 300 || xhr.status === 304)) throw new Error("Couldn't load " + url + ". Status: " + xhr.status);
-          var datalength = Number(xhr.getResponseHeader("Content-length"));
-          var header;
-          var hasByteServing = (header = xhr.getResponseHeader("Accept-Ranges")) && header === "bytes";
-          var usesGzip = (header = xhr.getResponseHeader("Content-Encoding")) && header === "gzip";
-  
-          var chunkSize = 1024*1024; 
-  
-          if (!hasByteServing) chunkSize = datalength;
-  
-          
-          var doXHR = (from, to) => {
-            if (from > to) throw new Error("invalid range (" + from + ", " + to + ") or no bytes requested!");
-            if (to > datalength-1) throw new Error("only " + datalength + " bytes available! programmer error!");
-  
+          setDataGetter(getter) {
+            this.getter = getter;
+          }
+          cacheLength() {
             
             var xhr = new XMLHttpRequest();
-            xhr.open('GET', url, false);
-            if (datalength !== chunkSize) xhr.setRequestHeader("Range", "bytes=" + from + "-" + to);
-  
-            
-            xhr.responseType = 'arraybuffer';
-            if (xhr.overrideMimeType) {
-              xhr.overrideMimeType('text/plain; charset=x-user-defined');
-            }
-  
+            xhr.open('HEAD', url, false);
             xhr.send(null);
             if (!(xhr.status >= 200 && xhr.status < 300 || xhr.status === 304)) throw new Error("Couldn't load " + url + ". Status: " + xhr.status);
-            if (xhr.response !== undefined) {
-              return new Uint8Array((xhr.response || []));
-            } else {
-              return intArrayFromString(xhr.responseText || '', true);
-            }
-          };
-          var lazyArray = this;
-          lazyArray.setDataGetter((chunkNum) => {
-            var start = chunkNum * chunkSize;
-            var end = (chunkNum+1) * chunkSize - 1; 
-            end = Math.min(end, datalength-1); 
-            if (typeof lazyArray.chunks[chunkNum] == 'undefined') {
-              lazyArray.chunks[chunkNum] = doXHR(start, end);
-            }
-            if (typeof lazyArray.chunks[chunkNum] == 'undefined') throw new Error('doXHR failed!');
-            return lazyArray.chunks[chunkNum];
-          });
+            var datalength = Number(xhr.getResponseHeader("Content-length"));
+            var header;
+            var hasByteServing = (header = xhr.getResponseHeader("Accept-Ranges")) && header === "bytes";
+            var usesGzip = (header = xhr.getResponseHeader("Content-Encoding")) && header === "gzip";
   
-          if (usesGzip || !datalength) {
+            var chunkSize = 1024*1024; 
+  
+            if (!hasByteServing) chunkSize = datalength;
+  
             
-            chunkSize = datalength = 1; 
-            datalength = this.getter(0).length;
-            chunkSize = datalength;
-            out("LazyFiles on gzip forces download of the whole file when length is accessed");
-          }
+            var doXHR = (from, to) => {
+              if (from > to) throw new Error("invalid range (" + from + ", " + to + ") or no bytes requested!");
+              if (to > datalength-1) throw new Error("only " + datalength + " bytes available! programmer error!");
   
-          this._length = datalength;
-          this._chunkSize = chunkSize;
-          this.lengthKnown = true;
-        };
+              
+              var xhr = new XMLHttpRequest();
+              xhr.open('GET', url, false);
+              if (datalength !== chunkSize) xhr.setRequestHeader("Range", "bytes=" + from + "-" + to);
+  
+              
+              xhr.responseType = 'arraybuffer';
+              if (xhr.overrideMimeType) {
+                xhr.overrideMimeType('text/plain; charset=x-user-defined');
+              }
+  
+              xhr.send(null);
+              if (!(xhr.status >= 200 && xhr.status < 300 || xhr.status === 304)) throw new Error("Couldn't load " + url + ". Status: " + xhr.status);
+              if (xhr.response !== undefined) {
+                return new Uint8Array((xhr.response || []));
+              }
+              return intArrayFromString(xhr.responseText || '', true);
+            };
+            var lazyArray = this;
+            lazyArray.setDataGetter((chunkNum) => {
+              var start = chunkNum * chunkSize;
+              var end = (chunkNum+1) * chunkSize - 1; 
+              end = Math.min(end, datalength-1); 
+              if (typeof lazyArray.chunks[chunkNum] == 'undefined') {
+                lazyArray.chunks[chunkNum] = doXHR(start, end);
+              }
+              if (typeof lazyArray.chunks[chunkNum] == 'undefined') throw new Error('doXHR failed!');
+              return lazyArray.chunks[chunkNum];
+            });
+  
+            if (usesGzip || !datalength) {
+              
+              chunkSize = datalength = 1; 
+              datalength = this.getter(0).length;
+              chunkSize = datalength;
+              out("LazyFiles on gzip forces download of the whole file when length is accessed");
+            }
+  
+            this._length = datalength;
+            this._chunkSize = chunkSize;
+            this.lengthKnown = true;
+          }
+          get length() {
+            if (!this.lengthKnown) {
+              this.cacheLength();
+            }
+            return this._length;
+          }
+          get chunkSize() {
+            if (!this.lengthKnown) {
+              this.cacheLength();
+            }
+            return this._chunkSize;
+          }
+        }
+  
         if (typeof XMLHttpRequest != 'undefined') {
           if (!ENVIRONMENT_IS_WORKER) throw 'Cannot do synchronous binary XHRs outside webworkers in modern browsers. Use --embed-file or --preload-file in emcc';
           var lazyArray = new LazyUint8Array();
-          Object.defineProperties(lazyArray, {
-            length: {
-              get:  function() {
-                if (!this.lengthKnown) {
-                  this.cacheLength();
-                }
-                return this._length;
-              }
-            },
-            chunkSize: {
-              get:  function() {
-                if (!this.lengthKnown) {
-                  this.cacheLength();
-                }
-                return this._chunkSize;
-              }
-            }
-          });
-  
           var properties = { isDevice: false, contents: lazyArray };
         } else {
           var properties = { isDevice: false, url: url };
@@ -3510,7 +3091,7 @@ var ASM_CONSTS = {
         
         Object.defineProperties(node, {
           usedBytes: {
-            get:  function() { return this.contents.length; }
+            get: function() { return this.contents.length; }
           }
         });
         
@@ -3518,14 +3099,12 @@ var ASM_CONSTS = {
         var keys = Object.keys(node.stream_ops);
         keys.forEach((key) => {
           var fn = node.stream_ops[key];
-          stream_ops[key] = function forceLoadLazyFile() {
+          stream_ops[key] = (...args) => {
             FS.forceLoadFile(node);
-            return fn.apply(null, arguments);
+            return fn(...args);
           };
         });
-        
-        stream_ops.read = (stream, buffer, offset, length, position) => {
-          FS.forceLoadFile(node);
+        function writeChunks(stream, buffer, offset, length, position) {
           var contents = stream.node.contents;
           if (position >= contents.length)
             return 0;
@@ -3540,112 +3119,36 @@ var ASM_CONSTS = {
             }
           }
           return size;
+        }
+        
+        stream_ops.read = (stream, buffer, offset, length, position) => {
+          FS.forceLoadFile(node);
+          return writeChunks(stream, buffer, offset, length, position)
+        };
+        
+        stream_ops.mmap = (stream, length, position, prot, flags) => {
+          FS.forceLoadFile(node);
+          var ptr = mmapAlloc(length);
+          if (!ptr) {
+            throw new FS.ErrnoError(48);
+          }
+          writeChunks(stream, HEAP8, ptr, length, position);
+          return { ptr, allocated: true };
         };
         node.stream_ops = stream_ops;
         return node;
-      },createPreloadedFile:(parent, name, url, canRead, canWrite, onload, onerror, dontCreateFile, canOwn, preFinish) => {
-        
-        
-        var fullname = name ? PATH_FS.resolve(PATH.join2(parent, name)) : parent;
-        var dep = getUniqueRunDependency('cp ' + fullname); 
-        function processData(byteArray) {
-          function finish(byteArray) {
-            if (preFinish) preFinish();
-            if (!dontCreateFile) {
-              FS.createDataFile(parent, name, byteArray, canRead, canWrite, canOwn);
-            }
-            if (onload) onload();
-            removeRunDependency(dep);
-          }
-          if (Browser.handledByPreloadPlugin(byteArray, fullname, finish, () => {
-            if (onerror) onerror();
-            removeRunDependency(dep);
-          })) {
-            return;
-          }
-          finish(byteArray);
-        }
-        addRunDependency(dep);
-        if (typeof url == 'string') {
-          asyncLoad(url, (byteArray) => processData(byteArray), onerror);
-        } else {
-          processData(url);
-        }
-      },indexedDB:() => {
-        return window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
-      },DB_NAME:() => {
-        return 'EM_FS_' + window.location.pathname;
-      },DB_VERSION:20,DB_STORE_NAME:"FILE_DATA",saveFilesToDB:(paths, onload, onerror) => {
-        onload = onload || (() => {});
-        onerror = onerror || (() => {});
-        var indexedDB = FS.indexedDB();
-        try {
-          var openRequest = indexedDB.open(FS.DB_NAME(), FS.DB_VERSION);
-        } catch (e) {
-          return onerror(e);
-        }
-        openRequest.onupgradeneeded = () => {
-          out('creating db');
-          var db = openRequest.result;
-          db.createObjectStore(FS.DB_STORE_NAME);
-        };
-        openRequest.onsuccess = () => {
-          var db = openRequest.result;
-          var transaction = db.transaction([FS.DB_STORE_NAME], 'readwrite');
-          var files = transaction.objectStore(FS.DB_STORE_NAME);
-          var ok = 0, fail = 0, total = paths.length;
-          function finish() {
-            if (fail == 0) onload(); else onerror();
-          }
-          paths.forEach((path) => {
-            var putRequest = files.put(FS.analyzePath(path).object.contents, path);
-            putRequest.onsuccess = () => { ok++; if (ok + fail == total) finish() };
-            putRequest.onerror = () => { fail++; if (ok + fail == total) finish() };
-          });
-          transaction.onerror = onerror;
-        };
-        openRequest.onerror = onerror;
-      },loadFilesFromDB:(paths, onload, onerror) => {
-        onload = onload || (() => {});
-        onerror = onerror || (() => {});
-        var indexedDB = FS.indexedDB();
-        try {
-          var openRequest = indexedDB.open(FS.DB_NAME(), FS.DB_VERSION);
-        } catch (e) {
-          return onerror(e);
-        }
-        openRequest.onupgradeneeded = onerror; 
-        openRequest.onsuccess = () => {
-          var db = openRequest.result;
-          try {
-            var transaction = db.transaction([FS.DB_STORE_NAME], 'readonly');
-          } catch(e) {
-            onerror(e);
-            return;
-          }
-          var files = transaction.objectStore(FS.DB_STORE_NAME);
-          var ok = 0, fail = 0, total = paths.length;
-          function finish() {
-            if (fail == 0) onload(); else onerror();
-          }
-          paths.forEach((path) => {
-            var getRequest = files.get(path);
-            getRequest.onsuccess = () => {
-              if (FS.analyzePath(path).exists) {
-                FS.unlink(path);
-              }
-              FS.createDataFile(PATH.dirname(path), PATH.basename(path), getRequest.result, true, true, true);
-              ok++;
-              if (ok + fail == total) finish();
-            };
-            getRequest.onerror = () => { fail++; if (ok + fail == total) finish() };
-          });
-          transaction.onerror = onerror;
-        };
-        openRequest.onerror = onerror;
-      }};
-  var SYSCALLS = {DEFAULT_POLLMASK:5,calculateAt:function(dirfd, path, allowEmpty) {
-        if (path[0] === '/') {
+      },
+  };
+  
+  
+    
+  var UTF8ToString = (ptr, maxBytesToRead) => {
+      return ptr ? UTF8ArrayToString(HEAPU8, ptr, maxBytesToRead) : '';
+    };
+  var SYSCALLS = {
+  DEFAULT_POLLMASK:5,
+  calculateAt(dirfd, path, allowEmpty) {
+        if (PATH.isAbs(path)) {
           return path;
         }
         
@@ -3653,8 +3156,7 @@ var ASM_CONSTS = {
         if (dirfd === -100) {
           dir = FS.cwd();
         } else {
-          var dirstream = FS.getStream(dirfd);
-          if (!dirstream) throw new FS.ErrnoError(8);
+          var dirstream = SYSCALLS.getStreamFromFD(dirfd);
           dir = dirstream.path;
         }
         if (path.length == 0) {
@@ -3663,129 +3165,52 @@ var ASM_CONSTS = {
           }
           return dir;
         }
-        return PATH.join2(dir, path);
-      },doStat:function(func, path, buf) {
-        try {
-          var stat = func(path);
-        } catch (e) {
-          if (e && e.node && PATH.normalize(path) !== PATH.normalize(FS.getPath(e.node))) {
-            
-            return -54;
-          }
-          throw e;
-        }
+        return dir + '/' + path;
+      },
+  doStat(func, path, buf) {
+        var stat = func(path);
         HEAP32[((buf)>>2)] = stat.dev;
-        HEAP32[(((buf)+(4))>>2)] = 0;
-        HEAP32[(((buf)+(8))>>2)] = stat.ino;
-        HEAP32[(((buf)+(12))>>2)] = stat.mode;
-        HEAP32[(((buf)+(16))>>2)] = stat.nlink;
-        HEAP32[(((buf)+(20))>>2)] = stat.uid;
-        HEAP32[(((buf)+(24))>>2)] = stat.gid;
-        HEAP32[(((buf)+(28))>>2)] = stat.rdev;
-        HEAP32[(((buf)+(32))>>2)] = 0;
-        HEAP64[(((buf)+(40))>>3)] = BigInt(stat.size);
-        HEAP32[(((buf)+(48))>>2)] = 4096;
-        HEAP32[(((buf)+(52))>>2)] = stat.blocks;
-        HEAP32[(((buf)+(56))>>2)] = (stat.atime.getTime() / 1000)|0;
-        HEAP32[(((buf)+(60))>>2)] = 0;
-        HEAP32[(((buf)+(64))>>2)] = (stat.mtime.getTime() / 1000)|0;
-        HEAP32[(((buf)+(68))>>2)] = 0;
-        HEAP32[(((buf)+(72))>>2)] = (stat.ctime.getTime() / 1000)|0;
-        HEAP32[(((buf)+(76))>>2)] = 0;
-        HEAP64[(((buf)+(80))>>3)] = BigInt(stat.ino);
+        HEAP32[(((buf)+(4))>>2)] = stat.mode;
+        HEAPU32[(((buf)+(8))>>2)] = stat.nlink;
+        HEAP32[(((buf)+(12))>>2)] = stat.uid;
+        HEAP32[(((buf)+(16))>>2)] = stat.gid;
+        HEAP32[(((buf)+(20))>>2)] = stat.rdev;
+        HEAP64[(((buf)+(24))>>3)] = BigInt(stat.size);
+        HEAP32[(((buf)+(32))>>2)] = 4096;
+        HEAP32[(((buf)+(36))>>2)] = stat.blocks;
+        var atime = stat.atime.getTime();
+        var mtime = stat.mtime.getTime();
+        var ctime = stat.ctime.getTime();
+        HEAP64[(((buf)+(40))>>3)] = BigInt(Math.floor(atime / 1000));
+        HEAPU32[(((buf)+(48))>>2)] = (atime % 1000) * 1000 * 1000;
+        HEAP64[(((buf)+(56))>>3)] = BigInt(Math.floor(mtime / 1000));
+        HEAPU32[(((buf)+(64))>>2)] = (mtime % 1000) * 1000 * 1000;
+        HEAP64[(((buf)+(72))>>3)] = BigInt(Math.floor(ctime / 1000));
+        HEAPU32[(((buf)+(80))>>2)] = (ctime % 1000) * 1000 * 1000;
+        HEAP64[(((buf)+(88))>>3)] = BigInt(stat.ino);
         return 0;
-      },doMsync:function(addr, stream, len, flags, offset) {
+      },
+  doMsync(addr, stream, len, flags, offset) {
+        if (!FS.isFile(stream.node.mode)) {
+          throw new FS.ErrnoError(43);
+        }
+        if (flags & 2) {
+          
+          return 0;
+        }
         var buffer = HEAPU8.slice(addr, addr + len);
         FS.msync(stream, buffer, offset, len, flags);
-      },doMkdir:function(path, mode) {
-        
-        
-        path = PATH.normalize(path);
-        if (path[path.length-1] === '/') path = path.substr(0, path.length-1);
-        FS.mkdir(path, mode, 0);
-        return 0;
-      },doMknod:function(path, mode, dev) {
-        
-        switch (mode & 61440) {
-          case 32768:
-          case 8192:
-          case 24576:
-          case 4096:
-          case 49152:
-            break;
-          default: return -28;
-        }
-        FS.mknod(path, mode, dev);
-        return 0;
-      },doReadlink:function(path, buf, bufsize) {
-        if (bufsize <= 0) return -28;
-        var ret = FS.readlink(path);
-  
-        var len = Math.min(bufsize, lengthBytesUTF8(ret));
-        var endChar = HEAP8[buf+len];
-        stringToUTF8(ret, buf, bufsize+1);
-        
-        
-        HEAP8[buf+len] = endChar;
-  
-        return len;
-      },doAccess:function(path, amode) {
-        if (amode & ~7) {
-          
-          return -28;
-        }
-        var lookup = FS.lookupPath(path, { follow: true });
-        var node = lookup.node;
-        if (!node) {
-          return -44;
-        }
-        var perms = '';
-        if (amode & 4) perms += 'r';
-        if (amode & 2) perms += 'w';
-        if (amode & 1) perms += 'x';
-        if (perms  && FS.nodePermissions(node, perms)) {
-          return -2;
-        }
-        return 0;
-      },doDup:function(path, flags, suggestFD) {
-        var suggest = FS.getStream(suggestFD);
-        if (suggest) FS.close(suggest);
-        return FS.open(path, flags, 0, suggestFD, suggestFD).fd;
-      },doReadv:function(stream, iov, iovcnt, offset) {
-        var ret = 0;
-        for (var i = 0; i < iovcnt; i++) {
-          var ptr = HEAP32[(((iov)+(i*8))>>2)];
-          var len = HEAP32[(((iov)+(i*8 + 4))>>2)];
-          var curr = FS.read(stream, HEAP8,ptr, len, offset);
-          if (curr < 0) return -1;
-          ret += curr;
-          if (curr < len) break; 
-        }
-        return ret;
-      },doWritev:function(stream, iov, iovcnt, offset) {
-        var ret = 0;
-        for (var i = 0; i < iovcnt; i++) {
-          var ptr = HEAP32[(((iov)+(i*8))>>2)];
-          var len = HEAP32[(((iov)+(i*8 + 4))>>2)];
-          var curr = FS.write(stream, HEAP8,ptr, len, offset);
-          if (curr < 0) return -1;
-          ret += curr;
-        }
-        return ret;
-      },varargs:undefined,get:function() {
-        SYSCALLS.varargs += 4;
-        var ret = HEAP32[(((SYSCALLS.varargs)-(4))>>2)];
-        return ret;
-      },getStr:function(ptr) {
+      },
+  getStreamFromFD(fd) {
+        var stream = FS.getStreamChecked(fd);
+        return stream;
+      },
+  varargs:undefined,
+  getStr(ptr) {
         var ret = UTF8ToString(ptr);
         return ret;
-      },getStreamFromFD:function(fd) {
-        var stream = FS.getStream(fd);
-        if (!stream) throw new FS.ErrnoError(8);
-        return stream;
-      },get64:function(low, high) {
-        return low;
-      }};
+      },
+  };
   function ___syscall_chmod(path, mode) {
   try {
   
@@ -3793,61 +3218,45 @@ var ASM_CONSTS = {
       FS.chmod(path, mode);
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
-  function ___syscall_chown32(path, owner, group) {
-  try {
+  var SOCKFS = {
+  websocketArgs:{
+  },
+  callbacks:{
+  },
+  on(event, callback) {
+        SOCKFS.callbacks[event] = callback;
+      },
+  emit(event, param) {
+        SOCKFS.callbacks[event]?.(param);
+      },
+  mount(mount) {
+        
+        
+        SOCKFS.websocketArgs = Module['websocket'] || {};
+        
+        
+        
+        (Module['websocket'] ??= {})['on'] = SOCKFS.on;
   
-      path = SYSCALLS.getStr(path);
-      FS.chown(path, owner, group);
-      return 0;
-    } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
-    return -e.errno;
-  }
-  }
-
-  var SOCKFS = {mount:function(mount) {
-        
-        
-        Module['websocket'] = (Module['websocket'] && 
-                               ('object' === typeof Module['websocket'])) ? Module['websocket'] : {};
-  
-        
-        
-        
-        Module['websocket']._callbacks = {};
-        Module['websocket']['on'] =  function(event, callback) {
-          if ('function' === typeof callback) {
-            this._callbacks[event] = callback;
-          }
-          return this;
-        };
-  
-        Module['websocket'].emit =  function(event, param) {
-          if ('function' === typeof this._callbacks[event]) {
-            this._callbacks[event].call(this, param);
-          }
-        };
-  
-        
-  
-        return FS.createNode(null, '/', 16384 | 511 , 0);
-      },createSocket:function(family, type, protocol) {
+        return FS.createNode(null, '/', 16895, 0);
+      },
+  createSocket(family, type, protocol) {
         type &= ~526336; 
         var streaming = type == 1;
-        if (protocol) {
-          assert(streaming == (protocol == 6)); 
+        if (streaming && protocol && protocol != 6) {
+          throw new FS.ErrnoError(66); 
         }
   
         
         var sock = {
-          family: family,
-          type: type,
-          protocol: protocol,
+          family,
+          type,
+          protocol,
           server: null,
           error: null, 
           peers: {},
@@ -3865,7 +3274,7 @@ var ASM_CONSTS = {
         
         var stream = FS.createStream({
           path: name,
-          node: node,
+          node,
           flags: 2,
           seekable: false,
           stream_ops: SOCKFS.stream_ops
@@ -3876,19 +3285,24 @@ var ASM_CONSTS = {
         sock.stream = stream;
   
         return sock;
-      },getSocket:function(fd) {
+      },
+  getSocket(fd) {
         var stream = FS.getStream(fd);
         if (!stream || !FS.isSocket(stream.node.mode)) {
           return null;
         }
         return stream.node.sock;
-      },stream_ops:{poll:function(stream) {
+      },
+  stream_ops:{
+  poll(stream) {
           var sock = stream.node.sock;
           return sock.sock_ops.poll(sock);
-        },ioctl:function(stream, request, varargs) {
+        },
+  ioctl(stream, request, varargs) {
           var sock = stream.node.sock;
           return sock.sock_ops.ioctl(sock, request, varargs);
-        },read:function(stream, buffer, offset, length, position ) {
+        },
+  read(stream, buffer, offset, length, position ) {
           var sock = stream.node.sock;
           var msg = sock.sock_ops.recvmsg(sock, length);
           if (!msg) {
@@ -3897,18 +3311,24 @@ var ASM_CONSTS = {
           }
           buffer.set(msg.buffer, offset);
           return msg.buffer.length;
-        },write:function(stream, buffer, offset, length, position ) {
+        },
+  write(stream, buffer, offset, length, position ) {
           var sock = stream.node.sock;
           return sock.sock_ops.sendmsg(sock, buffer, offset, length);
-        },close:function(stream) {
+        },
+  close(stream) {
           var sock = stream.node.sock;
           sock.sock_ops.close(sock);
-        }},nextname:function() {
+        },
+  },
+  nextname() {
         if (!SOCKFS.nextname.current) {
           SOCKFS.nextname.current = 0;
         }
-        return 'socket[' + (SOCKFS.nextname.current++) + ']';
-      },websocket_sock_ops:{createPeer:function(sock, addr, port) {
+        return `socket[${SOCKFS.nextname.current++}]`;
+      },
+  websocket_sock_ops:{
+  createPeer(sock, addr, port) {
           var ws;
   
           if (typeof addr == 'object') {
@@ -3938,16 +3358,22 @@ var ASM_CONSTS = {
             
             try {
               
-              var runtimeConfig = (Module['websocket'] && ('object' === typeof Module['websocket']));
-  
-              
               
               var url = 'ws:#'.replace('#', '//');
+              
+              var subProtocols = 'binary'; 
+              
+              var opts = undefined;
   
-              if (runtimeConfig) {
-                if ('string' === typeof Module['websocket']['url']) {
-                  url = Module['websocket']['url']; 
-                }
+              
+              if (SOCKFS.websocketArgs['url']) {
+                url = SOCKFS.websocketArgs['url'];
+              }
+              
+              if (SOCKFS.websocketArgs['subprotocol']) {
+                subProtocols = SOCKFS.websocketArgs['subprotocol'];
+              } else if (SOCKFS.websocketArgs['subprotocol'] === null) {
+                subProtocols = 'null'
               }
   
               if (url === 'ws://' || url === 'wss://') { 
@@ -3955,31 +3381,12 @@ var ASM_CONSTS = {
                 url = url + parts[0] + ":" + port + "/" + parts.slice(1).join('/');
               }
   
-              
-              var subProtocols = 'binary'; 
-  
-              if (runtimeConfig) {
-                if ('string' === typeof Module['websocket']['subprotocol']) {
-                  subProtocols = Module['websocket']['subprotocol']; 
-                }
-              }
-  
-              
-              var opts = undefined;
-  
               if (subProtocols !== 'null') {
                 
                 
                 subProtocols = subProtocols.replace(/^ +| +$/g,"").split(/ *, */);
   
-                
-                opts = ENVIRONMENT_IS_NODE ? {'protocol': subProtocols.toString()} : subProtocols;
-              }
-  
-              
-              if (runtimeConfig && null === Module['websocket']['subprotocol']) {
-                subProtocols = 'null';
-                opts = undefined;
+                opts = subProtocols;
               }
   
               
@@ -3995,10 +3402,10 @@ var ASM_CONSTS = {
           }
   
           var peer = {
-            addr: addr,
-            port: port,
+            addr,
+            port,
             socket: ws,
-            dgram_send_queue: []
+            msg_send_queue: []
           };
   
           SOCKFS.websocket_sock_ops.addPeer(sock, peer);
@@ -4008,7 +3415,7 @@ var ASM_CONSTS = {
           
           
           if (sock.type === 2 && typeof sock.sport != 'undefined') {
-            peer.dgram_send_queue.push(new Uint8Array([
+            peer.msg_send_queue.push(new Uint8Array([
                 255, 255, 255, 255,
                 'p'.charCodeAt(0), 'o'.charCodeAt(0), 'r'.charCodeAt(0), 't'.charCodeAt(0),
                 ((sock.sport & 0xff00) >> 8) , (sock.sport & 0xff)
@@ -4016,24 +3423,29 @@ var ASM_CONSTS = {
           }
   
           return peer;
-        },getPeer:function(sock, addr, port) {
+        },
+  getPeer(sock, addr, port) {
           return sock.peers[addr + ':' + port];
-        },addPeer:function(sock, peer) {
+        },
+  addPeer(sock, peer) {
           sock.peers[peer.addr + ':' + peer.port] = peer;
-        },removePeer:function(sock, peer) {
+        },
+  removePeer(sock, peer) {
           delete sock.peers[peer.addr + ':' + peer.port];
-        },handlePeerEvents:function(sock, peer) {
+        },
+  handlePeerEvents(sock, peer) {
           var first = true;
   
           var handleOpen = function () {
   
-            Module['websocket'].emit('open', sock.stream.fd);
+            sock.connecting = false;
+            SOCKFS.emit('open', sock.stream.fd);
   
             try {
-              var queued = peer.dgram_send_queue.shift();
+              var queued = peer.msg_send_queue.shift();
               while (queued) {
                 peer.socket.send(queued);
-                queued = peer.dgram_send_queue.shift();
+                queued = peer.msg_send_queue.shift();
               }
             } catch (e) {
               
@@ -4053,9 +3465,8 @@ var ASM_CONSTS = {
                 
                 
                 return;
-              } else {
-                data = new Uint8Array(data); 
               }
+              data = new Uint8Array(data); 
             }
   
             
@@ -4074,19 +3485,19 @@ var ASM_CONSTS = {
             }
   
             sock.recv_queue.push({ addr: peer.addr, port: peer.port, data: data });
-            Module['websocket'].emit('message', sock.stream.fd);
+            SOCKFS.emit('message', sock.stream.fd);
           };
   
           if (ENVIRONMENT_IS_NODE) {
             peer.socket.on('open', handleOpen);
-            peer.socket.on('message', function(data, flags) {
-              if (!flags.binary) {
+            peer.socket.on('message', function(data, isBinary) {
+              if (!isBinary) {
                 return;
               }
-              handleMessage((new Uint8Array(data)).buffer);  
+              handleMessage((new Uint8Array(data)).buffer); 
             });
             peer.socket.on('close', function() {
-              Module['websocket'].emit('close', sock.stream.fd);
+              SOCKFS.emit('close', sock.stream.fd);
             });
             peer.socket.on('error', function(error) {
               
@@ -4094,13 +3505,13 @@ var ASM_CONSTS = {
               
               
               sock.error = 14; 
-              Module['websocket'].emit('error', [sock.stream.fd, sock.error, 'ECONNREFUSED: Connection refused']);
+              SOCKFS.emit('error', [sock.stream.fd, sock.error, 'ECONNREFUSED: Connection refused']);
               
             });
           } else {
             peer.socket.onopen = handleOpen;
             peer.socket.onclose = function() {
-              Module['websocket'].emit('close', sock.stream.fd);
+              SOCKFS.emit('close', sock.stream.fd);
             };
             peer.socket.onmessage = function peer_socket_onmessage(event) {
               handleMessage(event.data);
@@ -4109,10 +3520,11 @@ var ASM_CONSTS = {
               
               
               sock.error = 14; 
-              Module['websocket'].emit('error', [sock.stream.fd, sock.error, 'ECONNREFUSED: Connection refused']);
+              SOCKFS.emit('error', [sock.stream.fd, sock.error, 'ECONNREFUSED: Connection refused']);
             };
           }
-        },poll:function(sock) {
+        },
+  poll(sock) {
           if (sock.type === 1 && sock.server) {
             
             
@@ -4138,11 +3550,20 @@ var ASM_CONSTS = {
   
           if ((dest && dest.socket.readyState === dest.socket.CLOSING) ||
               (dest && dest.socket.readyState === dest.socket.CLOSED)) {
-            mask |= 16;
+            
+            
+            
+            
+            if (sock.connecting) {
+              mask |= 4;
+            } else  {
+              mask |= 16;
+            }
           }
   
           return mask;
-        },ioctl:function(sock, request, arg) {
+        },
+  ioctl(sock, request, arg) {
           switch (request) {
             case 21531:
               var bytes = 0;
@@ -4154,7 +3575,8 @@ var ASM_CONSTS = {
             default:
               return 28;
           }
-        },close:function(sock) {
+        },
+  close(sock) {
           
           if (sock.server) {
             try {
@@ -4174,7 +3596,8 @@ var ASM_CONSTS = {
             SOCKFS.websocket_sock_ops.removePeer(sock, peer);
           }
           return 0;
-        },bind:function(sock, addr, port) {
+        },
+  bind(sock, addr, port) {
           if (typeof sock.saddr != 'undefined' || typeof sock.sport != 'undefined') {
             throw new FS.ErrnoError(28);  
           }
@@ -4194,11 +3617,12 @@ var ASM_CONSTS = {
             try {
               sock.sock_ops.listen(sock, 0);
             } catch (e) {
-              if (!(e instanceof FS.ErrnoError)) throw e;
+              if (!(e.name === 'ErrnoError')) throw e;
               if (e.errno !== 138) throw e;
             }
           }
-        },connect:function(sock, addr, port) {
+        },
+  connect(sock, addr, port) {
           if (sock.server) {
             throw new FS.ErrnoError(138);
           }
@@ -4226,19 +3650,24 @@ var ASM_CONSTS = {
           sock.dport = peer.port;
   
           
-          throw new FS.ErrnoError(26);
-        },listen:function(sock, backlog) {
+          
+          
+          sock.connecting = true;
+        },
+  listen(sock, backlog) {
           if (!ENVIRONMENT_IS_NODE) {
             throw new FS.ErrnoError(138);
           }
-        },accept:function(listensock) {
-          if (!listensock.server) {
+        },
+  accept(listensock) {
+          if (!listensock.server || !listensock.pending.length) {
             throw new FS.ErrnoError(28);
           }
           var newsock = listensock.pending.shift();
           newsock.stream.flags = listensock.stream.flags;
           return newsock;
-        },getname:function(sock, peer) {
+        },
+  getname(sock, peer) {
           var addr, port;
           if (peer) {
             if (sock.daddr === undefined || sock.dport === undefined) {
@@ -4252,8 +3681,9 @@ var ASM_CONSTS = {
             addr = sock.saddr || 0;
             port = sock.sport || 0;
           }
-          return { addr: addr, port: port };
-        },sendmsg:function(sock, buffer, offset, length, addr, port) {
+          return { addr, port };
+        },
+  sendmsg(sock, buffer, offset, length, addr, port) {
           if (sock.type === 2) {
             
             
@@ -4278,8 +3708,6 @@ var ASM_CONSTS = {
           if (sock.type === 1) {
             if (!dest || dest.socket.readyState === dest.socket.CLOSING || dest.socket.readyState === dest.socket.CLOSED) {
               throw new FS.ErrnoError(53);
-            } else if (dest.socket.readyState === dest.socket.CONNECTING) {
-              throw new FS.ErrnoError(6);
             }
           }
   
@@ -4291,21 +3719,20 @@ var ASM_CONSTS = {
             buffer = buffer.buffer;
           }
   
-          var data;
-            data = buffer.slice(offset, offset + length);
+          var data = buffer.slice(offset, offset + length);
   
           
           
           
-          if (sock.type === 2) {
-            if (!dest || dest.socket.readyState !== dest.socket.OPEN) {
-              
+          if (!dest || dest.socket.readyState !== dest.socket.OPEN) {
+            
+            if (sock.type === 2) {
               if (!dest || dest.socket.readyState === dest.socket.CLOSING || dest.socket.readyState === dest.socket.CLOSED) {
                 dest = SOCKFS.websocket_sock_ops.createPeer(sock, addr, port);
               }
-              dest.dgram_send_queue.push(data);
-              return length;
             }
+            dest.msg_send_queue.push(data);
+            return length;
           }
   
           try {
@@ -4315,7 +3742,8 @@ var ASM_CONSTS = {
           } catch (e) {
             throw new FS.ErrnoError(28);
           }
-        },recvmsg:function(sock, length) {
+        },
+  recvmsg(sock, length) {
           
           if (sock.type === 1 && sock.server) {
             
@@ -4331,17 +3759,14 @@ var ASM_CONSTS = {
                 
                 throw new FS.ErrnoError(53);
               }
-              else if (dest.socket.readyState === dest.socket.CLOSING || dest.socket.readyState === dest.socket.CLOSED) {
+              if (dest.socket.readyState === dest.socket.CLOSING || dest.socket.readyState === dest.socket.CLOSED) {
                 
                 return null;
               }
-              else {
-                
-                throw new FS.ErrnoError(6);
-              }
-            } else {
+              
               throw new FS.ErrnoError(6);
             }
+            throw new FS.ErrnoError(6);
           }
   
           
@@ -4364,24 +3789,38 @@ var ASM_CONSTS = {
           }
   
           return res;
-        }}};
-  function getSocketFromFD(fd) {
+        },
+  },
+  };
+  
+  var getSocketFromFD = (fd) => {
       var socket = SOCKFS.getSocket(fd);
       if (!socket) throw new FS.ErrnoError(8);
       return socket;
-    }
+    };
   
-  function setErrNo(value) {
-      HEAP32[((___errno_location())>>2)] = value;
-      return value;
-    }
-  var Sockets = {BUFFER_SIZE:10240,MAX_BUFFER_SIZE:10485760,nextFd:1,fds:{},nextport:1,maxport:65535,peer:null,connections:{},portmap:{},localAddr:4261412874,addrPool:[33554442,50331658,67108874,83886090,100663306,117440522,134217738,150994954,167772170,184549386,201326602,218103818,234881034]};
+  var Sockets = {
+  BUFFER_SIZE:10240,
+  MAX_BUFFER_SIZE:10485760,
+  nextFd:1,
+  fds:{
+  },
+  nextport:1,
+  maxport:65535,
+  peer:null,
+  connections:{
+  },
+  portmap:{
+  },
+  localAddr:4261412874,
+  addrPool:[33554442,50331658,67108874,83886090,100663306,117440522,134217738,150994954,167772170,184549386,201326602,218103818,234881034],
+  };
   
-  function inetNtop4(addr) {
-      return (addr & 0xff) + '.' + ((addr >> 8) & 0xff) + '.' + ((addr >> 16) & 0xff) + '.' + ((addr >> 24) & 0xff)
-    }
+  var inetNtop4 = (addr) =>
+      (addr & 0xff) + '.' + ((addr >> 8) & 0xff) + '.' + ((addr >> 16) & 0xff) + '.' + ((addr >> 24) & 0xff);
   
-  function inetNtop6(ints) {
+  
+  var inetNtop6 = (ints) => {
       
       
       
@@ -4476,8 +3915,9 @@ var ASM_CONSTS = {
         str += word < 7 ? ":" : "";
       }
       return str;
-    }
-  function readSockaddr(sa, salen) {
+    };
+  
+  var readSockaddr = (sa, salen) => {
       
       var family = HEAP16[((sa)>>1)];
       var port = _ntohs(HEAPU16[(((sa)+(2))>>1)]);
@@ -4508,9 +3948,10 @@ var ASM_CONSTS = {
       }
   
       return { family: family, addr: addr, port: port };
-    }
+    };
   
-  function inetPton4(str) {
+  
+  var inetPton4 = (str) => {
       var b = str.split('.');
       for (var i = 0; i < 4; i++) {
         var tmp = Number(b[i]);
@@ -4518,13 +3959,12 @@ var ASM_CONSTS = {
         b[i] = tmp;
       }
       return (b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)) >>> 0;
-    }
+    };
   
   
-  function jstoi_q(str) {
-      return parseInt(str);
-    }
-  function inetPton6(str) {
+  
+  var jstoi_q = (str) => parseInt(str);
+  var inetPton6 = (str) => {
       var words;
       var w, offset, z, i;
       
@@ -4578,8 +4018,16 @@ var ASM_CONSTS = {
         (parts[5] << 16) | parts[4],
         (parts[7] << 16) | parts[6]
       ];
-    }
-  var DNS = {address_map:{id:1,addrs:{},names:{}},lookup_name:function (name) {
+    };
+  var DNS = {
+  address_map:{
+  id:1,
+  addrs:{
+  },
+  names:{
+  },
+  },
+  lookup_name(name) {
         
         var res = inetPton4(name);
         if (res !== null) {
@@ -4606,22 +4054,22 @@ var ASM_CONSTS = {
         }
   
         return addr;
-      },lookup_addr:function (addr) {
+      },
+  lookup_addr(addr) {
         if (DNS.address_map.names[addr]) {
           return DNS.address_map.names[addr];
         }
   
         return null;
-      }};
-  
-  function getSocketAddress(addrp, addrlen, allowNull) {
-      if (allowNull && addrp === 0) return null;
+      },
+  };
+  var getSocketAddress = (addrp, addrlen) => {
       var info = readSockaddr(addrp, addrlen);
       if (info.errno) throw new FS.ErrnoError(info.errno);
       info.addr = DNS.lookup_addr(info.addr) || info.addr;
       return info;
-    }
-  function ___syscall_connect(fd, addr, addrlen) {
+    };
+  function ___syscall_connect(fd, addr, addrlen, d1, d2, d3) {
   try {
   
       var sock = getSocketFromFD(fd);
@@ -4629,7 +4077,7 @@ var ASM_CONSTS = {
       sock.sock_ops.connect(sock, info.addr, info.port);
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
@@ -4639,9 +4087,25 @@ var ASM_CONSTS = {
   
       path = SYSCALLS.getStr(path);
       path = SYSCALLS.calculateAt(dirfd, path);
-      return SYSCALLS.doAccess(path, amode);
+      if (amode & ~7) {
+        
+        return -28;
+      }
+      var lookup = FS.lookupPath(path, { follow: true });
+      var node = lookup.node;
+      if (!node) {
+        return -44;
+      }
+      var perms = '';
+      if (amode & 4) perms += 'r';
+      if (amode & 2) perms += 'w';
+      if (amode & 1) perms += 'x';
+      if (perms  && FS.nodePermissions(node, perms)) {
+        return -2;
+      }
+      return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
@@ -4652,7 +4116,7 @@ var ASM_CONSTS = {
       FS.fchmod(fd, mode);
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
@@ -4663,11 +4127,21 @@ var ASM_CONSTS = {
       FS.fchown(fd, owner, group);
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
+  
+  var syscallGetVarargI = () => {
+      
+      var ret = HEAP32[((+SYSCALLS.varargs)>>2)];
+      SYSCALLS.varargs += 4;
+      return ret;
+    };
+  var syscallGetVarargP = syscallGetVarargI;
+  
+  
   function ___syscall_fcntl64(fd, cmd, varargs) {
   SYSCALLS.varargs = varargs;
   try {
@@ -4675,12 +4149,15 @@ var ASM_CONSTS = {
       var stream = SYSCALLS.getStreamFromFD(fd);
       switch (cmd) {
         case 0: {
-          var arg = SYSCALLS.get();
+          var arg = syscallGetVarargI();
           if (arg < 0) {
             return -28;
           }
+          while (FS.streams[arg]) {
+            arg++;
+          }
           var newStream;
-          newStream = FS.open(stream.path, stream.flags, 0, arg);
+          newStream = FS.dupStream(stream, arg);
           return newStream.fd;
         }
         case 1:
@@ -4689,39 +4166,24 @@ var ASM_CONSTS = {
         case 3:
           return stream.flags;
         case 4: {
-          var arg = SYSCALLS.get();
+          var arg = syscallGetVarargI();
           stream.flags |= arg;
           return 0;
         }
-        case 5:
-         {
-          
-          var arg = SYSCALLS.get();
+        case 12: {
+          var arg = syscallGetVarargP();
           var offset = 0;
           
           HEAP16[(((arg)+(offset))>>1)] = 2;
           return 0;
         }
-        case 6:
-        case 7:
-        
-        
-          
-          
+        case 13:
+        case 14:
           return 0; 
-        case 16:
-        case 8:
-          return -28; 
-        case 9:
-          
-          setErrNo(28);
-          return -1;
-        default: {
-          return -28;
-        }
       }
+      return -28;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
@@ -4732,7 +4194,7 @@ var ASM_CONSTS = {
       var stream = SYSCALLS.getStreamFromFD(fd);
       return 0; 
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
@@ -4743,84 +4205,104 @@ var ASM_CONSTS = {
       var stream = SYSCALLS.getStreamFromFD(fd);
       return SYSCALLS.doStat(FS.stat, stream.path, buf);
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
-  function ___syscall_fstatat64(dirfd, path, buf, flags) {
+  var INT53_MAX = 9007199254740992;
+  
+  var INT53_MIN = -9007199254740992;
+  var bigintToI53Checked = (num) => (num < INT53_MIN || num > INT53_MAX) ? NaN : Number(num);
+  function ___syscall_ftruncate64(fd, length) {
+    length = bigintToI53Checked(length);
+  
+    
   try {
   
-      path = SYSCALLS.getStr(path);
-      var nofollow = flags & 256;
-      var allowEmpty = flags & 4096;
-      flags = flags & (~4352);
-      path = SYSCALLS.calculateAt(dirfd, path, allowEmpty);
-      return SYSCALLS.doStat(nofollow ? FS.lstat : FS.stat, path, buf);
-    } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
-    return -e.errno;
-  }
-  }
-
-  function ___syscall_ftruncate64(fd, low, high) {
-  try {
-  
-      var length = SYSCALLS.get64(low, high);
+      if (isNaN(length)) return 61;
       FS.ftruncate(fd, length);
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
+  ;
   }
 
+  
+  var stringToUTF8 = (str, outPtr, maxBytesToWrite) => {
+      return stringToUTF8Array(str, HEAPU8, outPtr, maxBytesToWrite);
+    };
   function ___syscall_getcwd(buf, size) {
   try {
   
       if (size === 0) return -28;
       var cwd = FS.cwd();
-      var cwdLengthInBytes = lengthBytesUTF8(cwd);
-      if (size < cwdLengthInBytes + 1) return -68;
+      var cwdLengthInBytes = lengthBytesUTF8(cwd) + 1;
+      if (size < cwdLengthInBytes) return -68;
       stringToUTF8(cwd, buf, size);
-      return buf;
+      return cwdLengthInBytes;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
-  function ___syscall_getegid32() {
-      return 0;
-    }
-  function ___syscall_geteuid32(
-  ) {
-  return ___syscall_getegid32();
-  }
-
+  
   function ___syscall_ioctl(fd, op, varargs) {
   SYSCALLS.varargs = varargs;
   try {
   
       var stream = SYSCALLS.getStreamFromFD(fd);
       switch (op) {
-        case 21509:
+        case 21509: {
+          if (!stream.tty) return -59;
+          return 0;
+        }
         case 21505: {
           if (!stream.tty) return -59;
+          if (stream.tty.ops.ioctl_tcgets) {
+            var termios = stream.tty.ops.ioctl_tcgets(stream);
+            var argp = syscallGetVarargP();
+            HEAP32[((argp)>>2)] = termios.c_iflag || 0;
+            HEAP32[(((argp)+(4))>>2)] = termios.c_oflag || 0;
+            HEAP32[(((argp)+(8))>>2)] = termios.c_cflag || 0;
+            HEAP32[(((argp)+(12))>>2)] = termios.c_lflag || 0;
+            for (var i = 0; i < 32; i++) {
+              HEAP8[(argp + i)+(17)] = termios.c_cc[i] || 0;
+            }
+            return 0;
+          }
           return 0;
         }
         case 21510:
         case 21511:
-        case 21512:
+        case 21512: {
+          if (!stream.tty) return -59;
+          return 0; 
+        }
         case 21506:
         case 21507:
         case 21508: {
           if (!stream.tty) return -59;
+          if (stream.tty.ops.ioctl_tcsets) {
+            var argp = syscallGetVarargP();
+            var c_iflag = HEAP32[((argp)>>2)];
+            var c_oflag = HEAP32[(((argp)+(4))>>2)];
+            var c_cflag = HEAP32[(((argp)+(8))>>2)];
+            var c_lflag = HEAP32[(((argp)+(12))>>2)];
+            var c_cc = []
+            for (var i = 0; i < 32; i++) {
+              c_cc.push(HEAP8[(argp + i)+(17)]);
+            }
+            return stream.tty.ops.ioctl_tcsets(stream.tty, op, { c_iflag, c_oflag, c_cflag, c_lflag, c_cc });
+          }
           return 0; 
         }
         case 21519: {
           if (!stream.tty) return -59;
-          var argp = SYSCALLS.get();
+          var argp = syscallGetVarargP();
           HEAP32[((argp)>>2)] = 0;
           return 0;
         }
@@ -4829,13 +4311,19 @@ var ASM_CONSTS = {
           return -28; 
         }
         case 21531: {
-          var argp = SYSCALLS.get();
+          var argp = syscallGetVarargP();
           return FS.ioctl(stream, op, argp);
         }
         case 21523: {
           
           
           if (!stream.tty) return -59;
+          if (stream.tty.ops.ioctl_tiocgwinsz) {
+            var winsize = stream.tty.ops.ioctl_tiocgwinsz(stream.tty);
+            var argp = syscallGetVarargP();
+            HEAP16[((argp)>>1)] = winsize[0];
+            HEAP16[(((argp)+(2))>>1)] = winsize[1];
+          }
           return 0;
         }
         case 21524: {
@@ -4845,10 +4333,14 @@ var ASM_CONSTS = {
           if (!stream.tty) return -59;
           return 0;
         }
-        default: abort('bad ioctl syscall ' + op);
+        case 21515: {
+          if (!stream.tty) return -59;
+          return 0;
+        }
+        default: return -28; 
       }
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
@@ -4859,56 +4351,88 @@ var ASM_CONSTS = {
       path = SYSCALLS.getStr(path);
       return SYSCALLS.doStat(FS.lstat, path, buf);
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
-  function ___syscall_mkdir(path, mode) {
+  function ___syscall_mkdirat(dirfd, path, mode) {
   try {
   
       path = SYSCALLS.getStr(path);
-      return SYSCALLS.doMkdir(path, mode);
+      path = SYSCALLS.calculateAt(dirfd, path);
+      FS.mkdir(path, mode, 0);
+      return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
-  function ___syscall_open(path, flags, varargs) {
+  function ___syscall_newfstatat(dirfd, path, buf, flags) {
+  try {
+  
+      path = SYSCALLS.getStr(path);
+      var nofollow = flags & 256;
+      var allowEmpty = flags & 4096;
+      flags = flags & (~6400);
+      path = SYSCALLS.calculateAt(dirfd, path, allowEmpty);
+      return SYSCALLS.doStat(nofollow ? FS.lstat : FS.stat, path, buf);
+    } catch (e) {
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
+    return -e.errno;
+  }
+  }
+
+  
+  function ___syscall_openat(dirfd, path, flags, varargs) {
   SYSCALLS.varargs = varargs;
   try {
   
-      var pathname = SYSCALLS.getStr(path);
-      var mode = varargs ? SYSCALLS.get() : 0;
-      var stream = FS.open(pathname, flags, mode);
-      return stream.fd;
+      path = SYSCALLS.getStr(path);
+      path = SYSCALLS.calculateAt(dirfd, path);
+      var mode = varargs ? syscallGetVarargI() : 0;
+      return FS.open(path, flags, mode).fd;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
-  function ___syscall_readlink(path, buf, bufsize) {
+  
+  
+  function ___syscall_readlinkat(dirfd, path, buf, bufsize) {
   try {
   
       path = SYSCALLS.getStr(path);
-      return SYSCALLS.doReadlink(path, buf, bufsize);
+      path = SYSCALLS.calculateAt(dirfd, path);
+      if (bufsize <= 0) return -28;
+      var ret = FS.readlink(path);
+  
+      var len = Math.min(bufsize, lengthBytesUTF8(ret));
+      var endChar = HEAP8[buf+len];
+      stringToUTF8(ret, buf, bufsize+1);
+      
+      
+      HEAP8[buf+len] = endChar;
+      return len;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
-  function ___syscall_rename(old_path, new_path) {
+  function ___syscall_renameat(olddirfd, oldpath, newdirfd, newpath) {
   try {
   
-      old_path = SYSCALLS.getStr(old_path);
-      new_path = SYSCALLS.getStr(new_path);
-      FS.rename(old_path, new_path);
+      oldpath = SYSCALLS.getStr(oldpath);
+      newpath = SYSCALLS.getStr(newpath);
+      oldpath = SYSCALLS.calculateAt(olddirfd, oldpath);
+      newpath = SYSCALLS.calculateAt(newdirfd, newpath);
+      FS.rename(oldpath, newpath);
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
@@ -4920,7 +4444,7 @@ var ASM_CONSTS = {
       FS.rmdir(path);
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
@@ -4931,7 +4455,7 @@ var ASM_CONSTS = {
       var sock = SOCKFS.createSocket(domain, type, protocol);
       return sock.stream.fd;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
@@ -4942,53 +4466,90 @@ var ASM_CONSTS = {
       path = SYSCALLS.getStr(path);
       return SYSCALLS.doStat(FS.stat, path, buf);
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
-  function ___syscall_unlink(path) {
+  function ___syscall_unlinkat(dirfd, path, flags) {
   try {
   
       path = SYSCALLS.getStr(path);
-      FS.unlink(path);
+      path = SYSCALLS.calculateAt(dirfd, path);
+      if (flags === 0) {
+        FS.unlink(path);
+      } else if (flags === 512) {
+        FS.rmdir(path);
+      } else {
+        abort('Invalid flags passed to unlinkat');
+      }
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
+  var readI53FromI64 = (ptr) => {
+      return HEAPU32[((ptr)>>2)] + HEAP32[(((ptr)+(4))>>2)] * 4294967296;
+    };
+  
   function ___syscall_utimensat(dirfd, path, times, flags) {
   try {
   
       path = SYSCALLS.getStr(path);
       path = SYSCALLS.calculateAt(dirfd, path, true);
-      var seconds = HEAP32[((times)>>2)];
-      var nanoseconds = HEAP32[(((times)+(4))>>2)];
-      var atime = (seconds*1000) + (nanoseconds/(1000*1000));
-      times += 8;
-      seconds = HEAP32[((times)>>2)];
-      nanoseconds = HEAP32[(((times)+(4))>>2)];
-      var mtime = (seconds*1000) + (nanoseconds/(1000*1000));
-      FS.utime(path, atime, mtime);
+      var now = Date.now(), atime, mtime;
+      if (!times) {
+        atime = now;
+        mtime = now;
+      } else {
+        var seconds = readI53FromI64(times);
+        var nanoseconds = HEAP32[(((times)+(8))>>2)];
+        if (nanoseconds == 1073741823) {
+          atime = now;
+        } else if (nanoseconds == 1073741822) {
+          atime = null;
+        } else {
+          atime = (seconds*1000) + (nanoseconds/(1000*1000));
+        }
+        times += 16;
+        seconds = readI53FromI64(times);
+        nanoseconds = HEAP32[(((times)+(8))>>2)];
+        if (nanoseconds == 1073741823) {
+          mtime = now;
+        } else if (nanoseconds == 1073741822) {
+          mtime = null;
+        } else {
+          mtime = (seconds*1000) + (nanoseconds/(1000*1000));
+        }
+      }
+      
+      
+      if ((mtime ?? atime) !== null) {
+        FS.utime(path, atime, mtime);
+      }
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
 
-  function __dlopen_js(filename, flag) {
-      abort("To use dlopen, you need to use Emscripten's linking support, see https://github.com/emscripten-core/emscripten/wiki/Linking");
-    }
-
-  function __dlsym_js(handle, symbol) {
-      abort("To use dlopen, you need to use Emscripten's linking support, see https://github.com/emscripten-core/emscripten/wiki/Linking");
-    }
+  
+  
+  
+  var __emscripten_lookup_name = (name) => {
+      
+      var nameString = UTF8ToString(name);
+      return inetPton4(DNS.lookup_name(nameString));
+    };
 
   function __gmtime_js(time, tmPtr) {
-      var date = new Date(HEAP32[((time)>>2)]*1000);
+    time = bigintToI53Checked(time);
+  
+    
+      var date = new Date(time * 1000);
       HEAP32[((tmPtr)>>2)] = date.getUTCSeconds();
       HEAP32[(((tmPtr)+(4))>>2)] = date.getUTCMinutes();
       HEAP32[(((tmPtr)+(8))>>2)] = date.getUTCHours();
@@ -4999,10 +4560,27 @@ var ASM_CONSTS = {
       var start = Date.UTC(date.getUTCFullYear(), 0, 1, 0, 0, 0, 0);
       var yday = ((date.getTime() - start) / (1000 * 60 * 60 * 24))|0;
       HEAP32[(((tmPtr)+(28))>>2)] = yday;
-    }
+    ;
+  }
 
+  var isLeapYear = (year) => year%4 === 0 && (year%100 !== 0 || year%400 === 0);
+  
+  var MONTH_DAYS_LEAP_CUMULATIVE = [0,31,60,91,121,152,182,213,244,274,305,335];
+  
+  var MONTH_DAYS_REGULAR_CUMULATIVE = [0,31,59,90,120,151,181,212,243,273,304,334];
+  var ydayFromDate = (date) => {
+      var leap = isLeapYear(date.getFullYear());
+      var monthDaysCumulative = (leap ? MONTH_DAYS_LEAP_CUMULATIVE : MONTH_DAYS_REGULAR_CUMULATIVE);
+      var yday = monthDaysCumulative[date.getMonth()] + date.getDate() - 1; 
+  
+      return yday;
+    };
+  
   function __localtime_js(time, tmPtr) {
-      var date = new Date(HEAP32[((time)>>2)]*1000);
+    time = bigintToI53Checked(time);
+  
+    
+      var date = new Date(time*1000);
       HEAP32[((tmPtr)>>2)] = date.getSeconds();
       HEAP32[(((tmPtr)+(4))>>2)] = date.getMinutes();
       HEAP32[(((tmPtr)+(8))>>2)] = date.getHours();
@@ -5011,50 +4589,65 @@ var ASM_CONSTS = {
       HEAP32[(((tmPtr)+(20))>>2)] = date.getFullYear()-1900;
       HEAP32[(((tmPtr)+(24))>>2)] = date.getDay();
   
-      var start = new Date(date.getFullYear(), 0, 1);
-      var yday = ((date.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))|0;
+      var yday = ydayFromDate(date)|0;
       HEAP32[(((tmPtr)+(28))>>2)] = yday;
       HEAP32[(((tmPtr)+(36))>>2)] = -(date.getTimezoneOffset() * 60);
   
       
+      var start = new Date(date.getFullYear(), 0, 1);
       var summerOffset = new Date(date.getFullYear(), 6, 1).getTimezoneOffset();
       var winterOffset = start.getTimezoneOffset();
       var dst = (summerOffset != winterOffset && date.getTimezoneOffset() == Math.min(winterOffset, summerOffset))|0;
       HEAP32[(((tmPtr)+(32))>>2)] = dst;
-    }
+    ;
+  }
 
-  function __mmap_js(addr, len, prot, flags, fd, off, allocated, builtin) {
+  
+  
+  
+  
+  
+  function __mmap_js(len, prot, flags, fd, offset, allocated, addr) {
+    offset = bigintToI53Checked(offset);
+  
+    
   try {
   
-      var info = FS.getStream(fd);
-      if (!info) return -8;
-      var res = FS.mmap(info, addr, len, off, prot, flags);
+      if (isNaN(offset)) return 61;
+      var stream = SYSCALLS.getStreamFromFD(fd);
+      var res = FS.mmap(stream, len, offset, prot, flags);
       var ptr = res.ptr;
       HEAP32[((allocated)>>2)] = res.allocated;
-      return ptr;
+      HEAPU32[((addr)>>2)] = ptr;
+      return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
+  ;
   }
 
+  
   function __munmap_js(addr, len, prot, flags, fd, offset) {
+    offset = bigintToI53Checked(offset);
+  
+    
   try {
   
-      var stream = FS.getStream(fd);
-      if (stream) {
-        if (prot & 2) {
-          SYSCALLS.doMsync(addr, stream, len, flags, offset);
-        }
-        FS.munmap(stream);
+      var stream = SYSCALLS.getStreamFromFD(fd);
+      if (prot & 2) {
+        SYSCALLS.doMsync(addr, stream, len, flags, offset);
       }
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
+  ;
   }
 
-  function __timegm_js(tmPtr) {
+  var __timegm_js = function(tmPtr) {
+  
+    var ret = (() => { 
       var time = Date.UTC(HEAP32[(((tmPtr)+(20))>>2)] + 1900,
                           HEAP32[(((tmPtr)+(16))>>2)],
                           HEAP32[(((tmPtr)+(12))>>2)],
@@ -5069,16 +4662,22 @@ var ASM_CONSTS = {
       var yday = ((date.getTime() - start) / (1000 * 60 * 60 * 24))|0;
       HEAP32[(((tmPtr)+(28))>>2)] = yday;
   
-      return (date.getTime() / 1000)|0;
-    }
+      return date.getTime() / 1000;
+     })();
+    return BigInt(ret);
+  };
 
-  function _tzset_impl(timezone, daylight, tzname) {
+  var __tzset_js = (timezone, daylight, std_name, dst_name) => {
+      
       var currentYear = new Date().getFullYear();
       var winter = new Date(currentYear, 0, 1);
       var summer = new Date(currentYear, 6, 1);
       var winterOffset = winter.getTimezoneOffset();
       var summerOffset = summer.getTimezoneOffset();
   
+      
+      
+      
       
       
       
@@ -5089,59 +4688,94 @@ var ASM_CONSTS = {
       
       
       
-      HEAP32[((timezone)>>2)] = stdTimezoneOffset * 60;
+      HEAPU32[((timezone)>>2)] = stdTimezoneOffset * 60;
   
       HEAP32[((daylight)>>2)] = Number(winterOffset != summerOffset);
   
-      function extractZone(date) {
-        var match = date.toTimeString().match(/\(([A-Za-z ]+)\)$/);
-        return match ? match[1] : "GMT";
-      };
-      var winterName = extractZone(winter);
-      var summerName = extractZone(summer);
-      var winterNamePtr = allocateUTF8(winterName);
-      var summerNamePtr = allocateUTF8(summerName);
+      var extractZone = (timezoneOffset) => {
+        
+        
+        var sign = timezoneOffset >= 0 ? "-" : "+";
+  
+        var absOffset = Math.abs(timezoneOffset)
+        var hours = String(Math.floor(absOffset / 60)).padStart(2, "0");
+        var minutes = String(absOffset % 60).padStart(2, "0");
+  
+        return `UTC${sign}${hours}${minutes}`;
+      }
+  
+      var winterName = extractZone(winterOffset);
+      var summerName = extractZone(summerOffset);
       if (summerOffset < winterOffset) {
         
-        HEAP32[((tzname)>>2)] = winterNamePtr;
-        HEAP32[(((tzname)+(4))>>2)] = summerNamePtr;
+        stringToUTF8(winterName, std_name, 17);
+        stringToUTF8(summerName, dst_name, 17);
       } else {
-        HEAP32[((tzname)>>2)] = summerNamePtr;
-        HEAP32[(((tzname)+(4))>>2)] = winterNamePtr;
+        stringToUTF8(winterName, dst_name, 17);
+        stringToUTF8(summerName, std_name, 17);
       }
-    }
-  function __tzset_js(timezone, daylight, tzname) {
-      
-      if (__tzset_js.called) return;
-      __tzset_js.called = true;
-      _tzset_impl(timezone, daylight, tzname);
-    }
+    };
 
-  function _emscripten_get_heap_max() {
+  var _emscripten_get_now = () => performance.now();
+  
+  var _emscripten_date_now = () => Date.now();
+  
+  var nowIsMonotonic = 1;
+  
+  var checkWasiClock = (clock_id) => clock_id >= 0 && clock_id <= 3;
+  
+  function _clock_time_get(clk_id, ignored_precision, ptime) {
+    ignored_precision = bigintToI53Checked(ignored_precision);
+  
+    
+      if (!checkWasiClock(clk_id)) {
+        return 28;
+      }
+      var now;
       
+      if (clk_id === 0) {
+        now = _emscripten_date_now();
+      } else if (nowIsMonotonic) {
+        now = _emscripten_get_now();
+      } else {
+        return 52;
+      }
       
-      
-      
-      return 2147483648;
-    }
+      var nsec = Math.round(now * 1000 * 1000);
+      HEAP64[((ptime)>>3)] = BigInt(nsec);
+      return 0;
+    ;
+  }
 
-  var _emscripten_get_now;_emscripten_get_now = () => performance.now();
-  ;
 
-  function emscripten_realloc_buffer(size) {
+  var getHeapMax = () =>
+      
+      
+      
+      
+      2147483648;
+  var _emscripten_get_heap_max = () => getHeapMax();
+
+
+  
+  
+  var growMemory = (size) => {
+      var b = wasmMemory.buffer;
+      var pages = ((size - b.byteLength + 65535) / 65536) | 0;
       try {
         
-        wasmMemory.grow((size - buffer.byteLength + 65535) >>> 16); 
-        updateGlobalBufferAndViews(wasmMemory.buffer);
+        wasmMemory.grow(pages); 
+        updateMemoryViews();
         return 1 ;
       } catch(e) {
       }
       
       
-    }
-  function _emscripten_resize_heap(requestedSize) {
+    };
+  var _emscripten_resize_heap = (requestedSize) => {
       var oldSize = HEAPU8.length;
-      requestedSize = requestedSize >>> 0;
+      
+      requestedSize >>>= 0;
       
       
   
@@ -5164,12 +4798,10 @@ var ASM_CONSTS = {
   
       
       
-      var maxHeapSize = _emscripten_get_heap_max();
+      var maxHeapSize = getHeapMax();
       if (requestedSize > maxHeapSize) {
         return false;
       }
-  
-      let alignUp = (x, multiple) => x + (multiple - x % multiple) % multiple;
   
       
       
@@ -5179,23 +4811,22 @@ var ASM_CONSTS = {
         
         overGrownHeapSize = Math.min(overGrownHeapSize, requestedSize + 100663296 );
   
-        var newSize = Math.min(maxHeapSize, alignUp(Math.max(requestedSize, overGrownHeapSize), 65536));
+        var newSize = Math.min(maxHeapSize, alignMemory(Math.max(requestedSize, overGrownHeapSize), 65536));
   
-        var replacement = emscripten_realloc_buffer(newSize);
+        var replacement = growMemory(newSize);
         if (replacement) {
   
           return true;
         }
       }
       return false;
-    }
+    };
 
-  var ENV = {};
+  var ENV = {
+  };
   
-  function getExecutableName() {
-      return thisProgram || './this.program';
-    }
-  function getEnvStrings() {
+  var getExecutableName = () => thisProgram || './this.program';
+  var getEnvStrings = () => {
       if (!getEnvStrings.strings) {
         
         
@@ -5219,33 +4850,39 @@ var ASM_CONSTS = {
         }
         var strings = [];
         for (var x in env) {
-          strings.push(x + '=' + env[x]);
+          strings.push(`${x}=${env[x]}`);
         }
         getEnvStrings.strings = strings;
       }
       return getEnvStrings.strings;
-    }
-  function _environ_get(__environ, environ_buf) {
+    };
+  
+  var stringToAscii = (str, buffer) => {
+      for (var i = 0; i < str.length; ++i) {
+        HEAP8[buffer++] = str.charCodeAt(i);
+      }
+      
+      HEAP8[buffer] = 0;
+    };
+  var _environ_get = (__environ, environ_buf) => {
       var bufSize = 0;
-      getEnvStrings().forEach(function(string, i) {
+      getEnvStrings().forEach((string, i) => {
         var ptr = environ_buf + bufSize;
-        HEAP32[(((__environ)+(i * 4))>>2)] = ptr;
-        writeAsciiToMemory(string, ptr);
+        HEAPU32[(((__environ)+(i*4))>>2)] = ptr;
+        stringToAscii(string, ptr);
         bufSize += string.length + 1;
       });
       return 0;
-    }
+    };
 
-  function _environ_sizes_get(penviron_count, penviron_buf_size) {
+  var _environ_sizes_get = (penviron_count, penviron_buf_size) => {
       var strings = getEnvStrings();
-      HEAP32[((penviron_count)>>2)] = strings.length;
+      HEAPU32[((penviron_count)>>2)] = strings.length;
       var bufSize = 0;
-      strings.forEach(function(string) {
-        bufSize += string.length + 1;
-      });
-      HEAP32[((penviron_buf_size)>>2)] = bufSize;
+      strings.forEach((string) => bufSize += string.length + 1);
+      HEAPU32[((penviron_buf_size)>>2)] = bufSize;
       return 0;
-    }
+    };
 
   function _fd_close(fd) {
   try {
@@ -5254,7 +4891,7 @@ var ASM_CONSTS = {
       FS.close(stream);
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return e.errno;
   }
   }
@@ -5262,169 +4899,187 @@ var ASM_CONSTS = {
   function _fd_fdstat_get(fd, pbuf) {
   try {
   
-      var stream = SYSCALLS.getStreamFromFD(fd);
-      
-      
-      var type = stream.tty ? 2 :
-                 FS.isDir(stream.mode) ? 3 :
-                 FS.isLink(stream.mode) ? 7 :
-                 4;
-      HEAP8[((pbuf)>>0)] = type;
-      
-      
-      
+      var rightsBase = 0;
+      var rightsInheriting = 0;
+      var flags = 0;
+      {
+        var stream = SYSCALLS.getStreamFromFD(fd);
+        
+        
+        var type = stream.tty ? 2 :
+                   FS.isDir(stream.mode) ? 3 :
+                   FS.isLink(stream.mode) ? 7 :
+                   4;
+      }
+      HEAP8[pbuf] = type;
+      HEAP16[(((pbuf)+(2))>>1)] = flags;
+      HEAP64[(((pbuf)+(8))>>3)] = BigInt(rightsBase);
+      HEAP64[(((pbuf)+(16))>>3)] = BigInt(rightsInheriting);
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return e.errno;
   }
   }
 
-  function _fd_pread(fd, iov, iovcnt,  offset_bigint, pnum) {
+  
+  var doReadv = (stream, iov, iovcnt, offset) => {
+      var ret = 0;
+      for (var i = 0; i < iovcnt; i++) {
+        var ptr = HEAPU32[((iov)>>2)];
+        var len = HEAPU32[(((iov)+(4))>>2)];
+        iov += 8;
+        var curr = FS.read(stream, HEAP8, ptr, len, offset);
+        if (curr < 0) return -1;
+        ret += curr;
+        if (curr < len) break; 
+        if (typeof offset != 'undefined') {
+          offset += curr;
+        }
+      }
+      return ret;
+    };
+  
+  
+  function _fd_pread(fd, iov, iovcnt, offset, pnum) {
+    offset = bigintToI53Checked(offset);
+  
+    
   try {
   
-      var offset_low = Number(offset_bigint & BigInt(0xffffffff)) | 0, offset_high = Number(offset_bigint >> BigInt(32)) | 0;
+      if (isNaN(offset)) return 61;
       var stream = SYSCALLS.getStreamFromFD(fd)
-      var num = SYSCALLS.doReadv(stream, iov, iovcnt, offset_low);
-      HEAP32[((pnum)>>2)] = num;
+      var num = doReadv(stream, iov, iovcnt, offset);
+      HEAPU32[((pnum)>>2)] = num;
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return e.errno;
   }
+  ;
   }
 
-  function _fd_pwrite(fd, iov, iovcnt,  offset_bigint, pnum) {
+  
+  var doWritev = (stream, iov, iovcnt, offset) => {
+      var ret = 0;
+      for (var i = 0; i < iovcnt; i++) {
+        var ptr = HEAPU32[((iov)>>2)];
+        var len = HEAPU32[(((iov)+(4))>>2)];
+        iov += 8;
+        var curr = FS.write(stream, HEAP8, ptr, len, offset);
+        if (curr < 0) return -1;
+        ret += curr;
+        if (curr < len) {
+          
+          break;
+        }
+        if (typeof offset != 'undefined') {
+          offset += curr;
+        }
+      }
+      return ret;
+    };
+  
+  
+  function _fd_pwrite(fd, iov, iovcnt, offset, pnum) {
+    offset = bigintToI53Checked(offset);
+  
+    
   try {
   
-      var offset_low = Number(offset_bigint & BigInt(0xffffffff)) | 0, offset_high = Number(offset_bigint >> BigInt(32)) | 0;
+      if (isNaN(offset)) return 61;
       var stream = SYSCALLS.getStreamFromFD(fd)
-      var num = SYSCALLS.doWritev(stream, iov, iovcnt, offset_low);
-      HEAP32[((pnum)>>2)] = num;
+      var num = doWritev(stream, iov, iovcnt, offset);
+      HEAPU32[((pnum)>>2)] = num;
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return e.errno;
   }
+  ;
   }
 
+  
   function _fd_read(fd, iov, iovcnt, pnum) {
   try {
   
       var stream = SYSCALLS.getStreamFromFD(fd);
-      var num = SYSCALLS.doReadv(stream, iov, iovcnt);
-      HEAP32[((pnum)>>2)] = num;
+      var num = doReadv(stream, iov, iovcnt);
+      HEAPU32[((pnum)>>2)] = num;
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return e.errno;
   }
   }
 
-  function _fd_seek(fd,  offset_bigint, whence, newOffset) {
+  
+  function _fd_seek(fd, offset, whence, newOffset) {
+    offset = bigintToI53Checked(offset);
+  
+    
   try {
   
-      var offset_low = Number(offset_bigint & BigInt(0xffffffff)) | 0, offset_high = Number(offset_bigint >> BigInt(32)) | 0;
+      if (isNaN(offset)) return 61;
       var stream = SYSCALLS.getStreamFromFD(fd);
-      var HIGH_OFFSET = 0x100000000; 
-      
-      var offset = offset_high * HIGH_OFFSET + (offset_low >>> 0);
-  
-      var DOUBLE_LIMIT = 0x20000000000000; 
-      
-      if (offset <= -DOUBLE_LIMIT || offset >= DOUBLE_LIMIT) {
-        return -61;
-      }
-  
       FS.llseek(stream, offset, whence);
       HEAP64[((newOffset)>>3)] = BigInt(stream.position);
       if (stream.getdents && offset === 0 && whence === 0) stream.getdents = null; 
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return e.errno;
   }
+  ;
   }
 
   function _fd_sync(fd) {
   try {
   
       var stream = SYSCALLS.getStreamFromFD(fd);
-      if (stream.stream_ops && stream.stream_ops.fsync) {
-        return -stream.stream_ops.fsync(stream);
+      if (stream.stream_ops?.fsync) {
+        return stream.stream_ops.fsync(stream);
       }
       return 0; 
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return e.errno;
   }
   }
 
+  
   function _fd_write(fd, iov, iovcnt, pnum) {
   try {
   
-      ;
       var stream = SYSCALLS.getStreamFromFD(fd);
-      var num = SYSCALLS.doWritev(stream, iov, iovcnt);
-      HEAP32[((pnum)>>2)] = num;
+      var num = doWritev(stream, iov, iovcnt);
+      HEAPU32[((pnum)>>2)] = num;
       return 0;
     } catch (e) {
-    if (typeof FS == 'undefined' || !(e instanceof FS.ErrnoError)) throw e;
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return e.errno;
   }
   }
 
-  function getHostByName(name) {
-      
-      var ret = _malloc(20); 
-      var nameBuf = _malloc(name.length+1);
-      stringToUTF8(name, nameBuf, name.length+1);
-      HEAP32[((ret)>>2)] = nameBuf;
-      var aliasesBuf = _malloc(4);
-      HEAP32[((aliasesBuf)>>2)] = 0;
-      HEAP32[(((ret)+(4))>>2)] = aliasesBuf;
-      var afinet = 2;
-      HEAP32[(((ret)+(8))>>2)] = afinet;
-      HEAP32[(((ret)+(12))>>2)] = 4;
-      var addrListBuf = _malloc(12);
-      HEAP32[((addrListBuf)>>2)] = addrListBuf+8;
-      HEAP32[(((addrListBuf)+(4))>>2)] = 0;
-      HEAP32[(((addrListBuf)+(8))>>2)] = inetPton4(DNS.lookup_name(name));
-      HEAP32[(((ret)+(16))>>2)] = addrListBuf;
-      return ret;
-    }
-  function _gethostbyname(name) {
-      return getHostByName(UTF8ToString(name));
-    }
-
-  function _gettimeofday(ptr) {
-      var now = Date.now();
-      HEAP32[((ptr)>>2)] = (now/1000)|0; 
-      HEAP32[(((ptr)+(4))>>2)] = ((now % 1000)*1000)|0; 
-      return 0;
-    }
-
-  function __isLeapYear(year) {
-        return year%4 === 0 && (year%100 !== 0 || year%400 === 0);
-    }
   
-  function __arraySum(array, index) {
+  var arraySum = (array, index) => {
       var sum = 0;
       for (var i = 0; i <= index; sum += array[i++]) {
         
       }
       return sum;
-    }
+    };
   
-  var __MONTH_DAYS_LEAP = [31,29,31,30,31,30,31,31,30,31,30,31];
   
-  var __MONTH_DAYS_REGULAR = [31,28,31,30,31,30,31,31,30,31,30,31];
-  function __addDays(date, days) {
+  var MONTH_DAYS_LEAP = [31,29,31,30,31,30,31,31,30,31,30,31];
+  
+  var MONTH_DAYS_REGULAR = [31,28,31,30,31,30,31,31,30,31,30,31];
+  var addDays = (date, days) => {
       var newDate = new Date(date.getTime());
       while (days > 0) {
-        var leap = __isLeapYear(newDate.getFullYear());
+        var leap = isLeapYear(newDate.getFullYear());
         var currentMonth = newDate.getMonth();
-        var daysInCurrentMonth = (leap ? __MONTH_DAYS_LEAP : __MONTH_DAYS_REGULAR)[currentMonth];
+        var daysInCurrentMonth = (leap ? MONTH_DAYS_LEAP : MONTH_DAYS_REGULAR)[currentMonth];
   
         if (days > daysInCurrentMonth-newDate.getDate()) {
           
@@ -5444,331 +5099,13 @@ var ASM_CONSTS = {
       }
   
       return newDate;
-    }
-  function _strftime(s, maxsize, format, tm) {
-      
-      
+    };
   
-      var tm_zone = HEAP32[(((tm)+(40))>>2)];
   
-      var date = {
-        tm_sec: HEAP32[((tm)>>2)],
-        tm_min: HEAP32[(((tm)+(4))>>2)],
-        tm_hour: HEAP32[(((tm)+(8))>>2)],
-        tm_mday: HEAP32[(((tm)+(12))>>2)],
-        tm_mon: HEAP32[(((tm)+(16))>>2)],
-        tm_year: HEAP32[(((tm)+(20))>>2)],
-        tm_wday: HEAP32[(((tm)+(24))>>2)],
-        tm_yday: HEAP32[(((tm)+(28))>>2)],
-        tm_isdst: HEAP32[(((tm)+(32))>>2)],
-        tm_gmtoff: HEAP32[(((tm)+(36))>>2)],
-        tm_zone: tm_zone ? UTF8ToString(tm_zone) : ''
-      };
   
-      var pattern = UTF8ToString(format);
   
-      
-      var EXPANSION_RULES_1 = {
-        '%c': '%a %b %d %H:%M:%S %Y',     
-        '%D': '%m/%d/%y',                 
-        '%F': '%Y-%m-%d',                 
-        '%h': '%b',                       
-        '%r': '%I:%M:%S %p',              
-        '%R': '%H:%M',                    
-        '%T': '%H:%M:%S',                 
-        '%x': '%m/%d/%y',                 
-        '%X': '%H:%M:%S',                 
-        
-        '%Ec': '%c',                      
-        '%EC': '%C',                      
-        '%Ex': '%m/%d/%y',                
-        '%EX': '%H:%M:%S',                
-        '%Ey': '%y',                      
-        '%EY': '%Y',                      
-        '%Od': '%d',                      
-        '%Oe': '%e',                      
-        '%OH': '%H',                      
-        '%OI': '%I',                      
-        '%Om': '%m',                      
-        '%OM': '%M',                      
-        '%OS': '%S',                      
-        '%Ou': '%u',                      
-        '%OU': '%U',                      
-        '%OV': '%V',                      
-        '%Ow': '%w',                      
-        '%OW': '%W',                      
-        '%Oy': '%y',                      
-      };
-      for (var rule in EXPANSION_RULES_1) {
-        pattern = pattern.replace(new RegExp(rule, 'g'), EXPANSION_RULES_1[rule]);
-      }
   
-      var WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  
-      function leadingSomething(value, digits, character) {
-        var str = typeof value == 'number' ? value.toString() : (value || '');
-        while (str.length < digits) {
-          str = character[0]+str;
-        }
-        return str;
-      }
-  
-      function leadingNulls(value, digits) {
-        return leadingSomething(value, digits, '0');
-      }
-  
-      function compareByDay(date1, date2) {
-        function sgn(value) {
-          return value < 0 ? -1 : (value > 0 ? 1 : 0);
-        }
-  
-        var compare;
-        if ((compare = sgn(date1.getFullYear()-date2.getFullYear())) === 0) {
-          if ((compare = sgn(date1.getMonth()-date2.getMonth())) === 0) {
-            compare = sgn(date1.getDate()-date2.getDate());
-          }
-        }
-        return compare;
-      }
-  
-      function getFirstWeekStartDate(janFourth) {
-          switch (janFourth.getDay()) {
-            case 0: 
-              return new Date(janFourth.getFullYear()-1, 11, 29);
-            case 1: 
-              return janFourth;
-            case 2: 
-              return new Date(janFourth.getFullYear(), 0, 3);
-            case 3: 
-              return new Date(janFourth.getFullYear(), 0, 2);
-            case 4: 
-              return new Date(janFourth.getFullYear(), 0, 1);
-            case 5: 
-              return new Date(janFourth.getFullYear()-1, 11, 31);
-            case 6: 
-              return new Date(janFourth.getFullYear()-1, 11, 30);
-          }
-      }
-  
-      function getWeekBasedYear(date) {
-          var thisDate = __addDays(new Date(date.tm_year+1900, 0, 1), date.tm_yday);
-  
-          var janFourthThisYear = new Date(thisDate.getFullYear(), 0, 4);
-          var janFourthNextYear = new Date(thisDate.getFullYear()+1, 0, 4);
-  
-          var firstWeekStartThisYear = getFirstWeekStartDate(janFourthThisYear);
-          var firstWeekStartNextYear = getFirstWeekStartDate(janFourthNextYear);
-  
-          if (compareByDay(firstWeekStartThisYear, thisDate) <= 0) {
-            
-            if (compareByDay(firstWeekStartNextYear, thisDate) <= 0) {
-              return thisDate.getFullYear()+1;
-            } else {
-              return thisDate.getFullYear();
-            }
-          } else {
-            return thisDate.getFullYear()-1;
-          }
-      }
-  
-      var EXPANSION_RULES_2 = {
-        '%a': function(date) {
-          return WEEKDAYS[date.tm_wday].substring(0,3);
-        },
-        '%A': function(date) {
-          return WEEKDAYS[date.tm_wday];
-        },
-        '%b': function(date) {
-          return MONTHS[date.tm_mon].substring(0,3);
-        },
-        '%B': function(date) {
-          return MONTHS[date.tm_mon];
-        },
-        '%C': function(date) {
-          var year = date.tm_year+1900;
-          return leadingNulls((year/100)|0,2);
-        },
-        '%d': function(date) {
-          return leadingNulls(date.tm_mday, 2);
-        },
-        '%e': function(date) {
-          return leadingSomething(date.tm_mday, 2, ' ');
-        },
-        '%g': function(date) {
-          
-          
-          
-          
-          
-          
-          
-          
-          
-  
-          return getWeekBasedYear(date).toString().substring(2);
-        },
-        '%G': function(date) {
-          return getWeekBasedYear(date);
-        },
-        '%H': function(date) {
-          return leadingNulls(date.tm_hour, 2);
-        },
-        '%I': function(date) {
-          var twelveHour = date.tm_hour;
-          if (twelveHour == 0) twelveHour = 12;
-          else if (twelveHour > 12) twelveHour -= 12;
-          return leadingNulls(twelveHour, 2);
-        },
-        '%j': function(date) {
-          
-          return leadingNulls(date.tm_mday+__arraySum(__isLeapYear(date.tm_year+1900) ? __MONTH_DAYS_LEAP : __MONTH_DAYS_REGULAR, date.tm_mon-1), 3);
-        },
-        '%m': function(date) {
-          return leadingNulls(date.tm_mon+1, 2);
-        },
-        '%M': function(date) {
-          return leadingNulls(date.tm_min, 2);
-        },
-        '%n': function() {
-          return '\n';
-        },
-        '%p': function(date) {
-          if (date.tm_hour >= 0 && date.tm_hour < 12) {
-            return 'AM';
-          } else {
-            return 'PM';
-          }
-        },
-        '%S': function(date) {
-          return leadingNulls(date.tm_sec, 2);
-        },
-        '%t': function() {
-          return '\t';
-        },
-        '%u': function(date) {
-          return date.tm_wday || 7;
-        },
-        '%U': function(date) {
-          
-          
-          
-          var janFirst = new Date(date.tm_year+1900, 0, 1);
-          var firstSunday = janFirst.getDay() === 0 ? janFirst : __addDays(janFirst, 7-janFirst.getDay());
-          var endDate = new Date(date.tm_year+1900, date.tm_mon, date.tm_mday);
-  
-          
-          if (compareByDay(firstSunday, endDate) < 0) {
-            
-            var februaryFirstUntilEndMonth = __arraySum(__isLeapYear(endDate.getFullYear()) ? __MONTH_DAYS_LEAP : __MONTH_DAYS_REGULAR, endDate.getMonth()-1)-31;
-            var firstSundayUntilEndJanuary = 31-firstSunday.getDate();
-            var days = firstSundayUntilEndJanuary+februaryFirstUntilEndMonth+endDate.getDate();
-            return leadingNulls(Math.ceil(days/7), 2);
-          }
-  
-          return compareByDay(firstSunday, janFirst) === 0 ? '01': '00';
-        },
-        '%V': function(date) {
-          
-          
-          
-          
-          
-          var janFourthThisYear = new Date(date.tm_year+1900, 0, 4);
-          var janFourthNextYear = new Date(date.tm_year+1901, 0, 4);
-  
-          var firstWeekStartThisYear = getFirstWeekStartDate(janFourthThisYear);
-          var firstWeekStartNextYear = getFirstWeekStartDate(janFourthNextYear);
-  
-          var endDate = __addDays(new Date(date.tm_year+1900, 0, 1), date.tm_yday);
-  
-          if (compareByDay(endDate, firstWeekStartThisYear) < 0) {
-            
-            return '53';
-          }
-  
-          if (compareByDay(firstWeekStartNextYear, endDate) <= 0) {
-            
-            return '01';
-          }
-  
-          
-          var daysDifference;
-          if (firstWeekStartThisYear.getFullYear() < date.tm_year+1900) {
-            
-            daysDifference = date.tm_yday+32-firstWeekStartThisYear.getDate()
-          } else {
-            
-            daysDifference = date.tm_yday+1-firstWeekStartThisYear.getDate();
-          }
-          return leadingNulls(Math.ceil(daysDifference/7), 2);
-        },
-        '%w': function(date) {
-          return date.tm_wday;
-        },
-        '%W': function(date) {
-          
-          
-          
-          var janFirst = new Date(date.tm_year, 0, 1);
-          var firstMonday = janFirst.getDay() === 1 ? janFirst : __addDays(janFirst, janFirst.getDay() === 0 ? 1 : 7-janFirst.getDay()+1);
-          var endDate = new Date(date.tm_year+1900, date.tm_mon, date.tm_mday);
-  
-          
-          if (compareByDay(firstMonday, endDate) < 0) {
-            var februaryFirstUntilEndMonth = __arraySum(__isLeapYear(endDate.getFullYear()) ? __MONTH_DAYS_LEAP : __MONTH_DAYS_REGULAR, endDate.getMonth()-1)-31;
-            var firstMondayUntilEndJanuary = 31-firstMonday.getDate();
-            var days = firstMondayUntilEndJanuary+februaryFirstUntilEndMonth+endDate.getDate();
-            return leadingNulls(Math.ceil(days/7), 2);
-          }
-          return compareByDay(firstMonday, janFirst) === 0 ? '01': '00';
-        },
-        '%y': function(date) {
-          
-          return (date.tm_year+1900).toString().substring(2);
-        },
-        '%Y': function(date) {
-          
-          return date.tm_year+1900;
-        },
-        '%z': function(date) {
-          
-          
-          var off = date.tm_gmtoff;
-          var ahead = off >= 0;
-          off = Math.abs(off) / 60;
-          
-          off = (off / 60)*100 + (off % 60);
-          return (ahead ? '+' : '-') + String("0000" + off).slice(-4);
-        },
-        '%Z': function(date) {
-          return date.tm_zone;
-        },
-        '%%': function() {
-          return '%';
-        }
-      };
-  
-      
-      
-      pattern = pattern.replace(/%%/g, '\0\0')
-      for (var rule in EXPANSION_RULES_2) {
-        if (pattern.includes(rule)) {
-          pattern = pattern.replace(new RegExp(rule, 'g'), EXPANSION_RULES_2[rule](date));
-        }
-      }
-      pattern = pattern.replace(/\0\0/g, '%')
-  
-      var bytes = intArrayFromString(pattern, false);
-      if (bytes.length > maxsize) {
-        return 0;
-      }
-  
-      writeArrayToMemory(bytes, s);
-      return bytes.length-1;
-    }
-
-  function _strptime(buf, format, tm) {
+  var _strptime = (buf, format, tm) => {
       
       
       var pattern = UTF8ToString(format);
@@ -5782,64 +5119,64 @@ var ASM_CONSTS = {
   
       
       var EQUIVALENT_MATCHERS = {
-        '%A':  '%a',
-        '%B':  '%b',
-        '%c':  '%a %b %d %H:%M:%S %Y',
-        '%D':  '%m\\/%d\\/%y',
-        '%e':  '%d',
-        '%F':  '%Y-%m-%d',
-        '%h':  '%b',
-        '%R':  '%H\\:%M',
-        '%r':  '%I\\:%M\\:%S\\s%p',
-        '%T':  '%H\\:%M\\:%S',
-        '%x':  '%m\\/%d\\/(?:%y|%Y)',
-        '%X':  '%H\\:%M\\:%S'
+        'A':  '%a',
+        'B':  '%b',
+        'c':  '%a %b %d %H:%M:%S %Y',
+        'D':  '%m\\/%d\\/%y',
+        'e':  '%d',
+        'F':  '%Y-%m-%d',
+        'h':  '%b',
+        'R':  '%H\\:%M',
+        'r':  '%I\\:%M\\:%S\\s%p',
+        'T':  '%H\\:%M\\:%S',
+        'x':  '%m\\/%d\\/(?:%y|%Y)',
+        'X':  '%H\\:%M\\:%S'
       };
-      for (var matcher in EQUIVALENT_MATCHERS) {
-        pattern = pattern.replace(matcher, EQUIVALENT_MATCHERS[matcher]);
-      }
-  
       
   
       var DATE_PATTERNS = {
-             '%a': '(?:Sun(?:day)?)|(?:Mon(?:day)?)|(?:Tue(?:sday)?)|(?:Wed(?:nesday)?)|(?:Thu(?:rsday)?)|(?:Fri(?:day)?)|(?:Sat(?:urday)?)',
-              '%b': '(?:Jan(?:uary)?)|(?:Feb(?:ruary)?)|(?:Mar(?:ch)?)|(?:Apr(?:il)?)|May|(?:Jun(?:e)?)|(?:Jul(?:y)?)|(?:Aug(?:ust)?)|(?:Sep(?:tember)?)|(?:Oct(?:ober)?)|(?:Nov(?:ember)?)|(?:Dec(?:ember)?)',
-                 '%C': '\\d\\d',
-            '%d': '0[1-9]|[1-9](?!\\d)|1\\d|2\\d|30|31',
-             '%H': '\\d(?!\\d)|[0,1]\\d|20|21|22|23',
-             '%I': '\\d(?!\\d)|0\\d|10|11|12',
-             '%j': '00[1-9]|0?[1-9](?!\\d)|0?[1-9]\\d(?!\\d)|[1,2]\\d\\d|3[0-6]\\d',
-                   '%m': '0[1-9]|[1-9](?!\\d)|10|11|12',
-                 '%M': '0\\d|\\d(?!\\d)|[1-5]\\d',
-              '%n': '\\s',
-                   '%p': 'AM|am|PM|pm|A\\.M\\.|a\\.m\\.|P\\.M\\.|p\\.m\\.',
-                 '%S': '0\\d|\\d(?!\\d)|[1-5]\\d|60',
-             '%U': '0\\d|\\d(?!\\d)|[1-4]\\d|50|51|52|53',
-             '%W': '0\\d|\\d(?!\\d)|[1-4]\\d|50|51|52|53',
-          '%w': '[0-6]',
-            '%y': '\\d\\d',
-            '%Y': '\\d\\d\\d\\d',
-                       '%%': '%',
-              '%t': '\\s',
+            'a': '(?:Sun(?:day)?)|(?:Mon(?:day)?)|(?:Tue(?:sday)?)|(?:Wed(?:nesday)?)|(?:Thu(?:rsday)?)|(?:Fri(?:day)?)|(?:Sat(?:urday)?)',
+              'b': '(?:Jan(?:uary)?)|(?:Feb(?:ruary)?)|(?:Mar(?:ch)?)|(?:Apr(?:il)?)|May|(?:Jun(?:e)?)|(?:Jul(?:y)?)|(?:Aug(?:ust)?)|(?:Sep(?:tember)?)|(?:Oct(?:ober)?)|(?:Nov(?:ember)?)|(?:Dec(?:ember)?)',
+                 'C': '\\d\\d',
+            'd': '0[1-9]|[1-9](?!\\d)|1\\d|2\\d|30|31',
+             'H': '\\d(?!\\d)|[0,1]\\d|20|21|22|23',
+             'I': '\\d(?!\\d)|0\\d|10|11|12',
+             'j': '00[1-9]|0?[1-9](?!\\d)|0?[1-9]\\d(?!\\d)|[1,2]\\d\\d|3[0-6]\\d',
+                   'm': '0[1-9]|[1-9](?!\\d)|10|11|12',
+                 'M': '0\\d|\\d(?!\\d)|[1-5]\\d',
+              'n': ' ',
+                   'p': 'AM|am|PM|pm|A\\.M\\.|a\\.m\\.|P\\.M\\.|p\\.m\\.',
+                 'S': '0\\d|\\d(?!\\d)|[1-5]\\d|60',
+             'U': '0\\d|\\d(?!\\d)|[1-4]\\d|50|51|52|53',
+             'W': '0\\d|\\d(?!\\d)|[1-4]\\d|50|51|52|53',
+          'w': '[0-6]',
+            'y': '\\d\\d',
+            'Y': '\\d\\d\\d\\d',
+              't': ' ',
+               'z': 'Z|(?:[\\+\\-]\\d\\d:?(?:\\d\\d)?)'
       };
   
       var MONTH_NUMBERS = {JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11};
       var DAY_NUMBERS_SUN_FIRST = {SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6};
       var DAY_NUMBERS_MON_FIRST = {MON: 0, TUE: 1, WED: 2, THU: 3, FRI: 4, SAT: 5, SUN: 6};
   
-      for (var datePattern in DATE_PATTERNS) {
-        pattern = pattern.replace(datePattern, '('+datePattern+DATE_PATTERNS[datePattern]+')');
-      }
-  
-      
       var capture = [];
-      for (var i=pattern.indexOf('%'); i>=0; i=pattern.indexOf('%')) {
-        capture.push(pattern[i+1]);
-        pattern = pattern.replace(new RegExp('\\%'+pattern[i+1], 'g'), '');
-      }
+      var pattern_out = pattern
+        .replace(/%(.)/g, (m, c) => EQUIVALENT_MATCHERS[c] || m)
+        .replace(/%(.)/g, (_, c) => {
+          let pat = DATE_PATTERNS[c];
+          if (pat){
+            capture.push(c);
+            return `(${pat})`;
+          } else {
+            return c;
+          }
+        })
+        .replace( 
+          /\s+/g,'\\s*'
+        );
   
-      var matches = new RegExp('^'+pattern, "i").exec(UTF8ToString(buf))
-      
+      var matches = new RegExp('^'+pattern_out, "i").exec(UTF8ToString(buf))
   
       function initDate() {
         function fixup(value, min, max) {
@@ -5851,7 +5188,8 @@ var ASM_CONSTS = {
           day: fixup(HEAP32[(((tm)+(12))>>2)], 1, 31),
           hour: fixup(HEAP32[(((tm)+(8))>>2)], 0, 23),
           min: fixup(HEAP32[(((tm)+(4))>>2)], 0, 59),
-          sec: fixup(HEAP32[((tm)>>2)], 0, 59)
+          sec: fixup(HEAP32[((tm)>>2)], 0, 59),
+          gmtoff: 0
         };
       };
   
@@ -5926,10 +5264,10 @@ var ASM_CONSTS = {
         } else if ((value=getMatch('j'))) {
           
           var day = jstoi_q(value);
-          var leapYear = __isLeapYear(date.year);
+          var leapYear = isLeapYear(date.year);
           for (var month=0; month<12; ++month) {
-            var daysUntilMonth = __arraySum(leapYear ? __MONTH_DAYS_LEAP : __MONTH_DAYS_REGULAR, month-1);
-            if (day<=daysUntilMonth+(leapYear ? __MONTH_DAYS_LEAP : __MONTH_DAYS_REGULAR)[month]) {
+            var daysUntilMonth = arraySum(leapYear ? MONTH_DAYS_LEAP : MONTH_DAYS_REGULAR, month-1);
+            if (day<=daysUntilMonth+(leapYear ? MONTH_DAYS_LEAP : MONTH_DAYS_REGULAR)[month]) {
               date.day = day-daysUntilMonth;
             }
           }
@@ -5948,10 +5286,10 @@ var ASM_CONSTS = {
             var endDate;
             if (janFirst.getDay() === 0) {
               
-              endDate = __addDays(janFirst, weekDayNumber+7*(weekNumber-1));
+              endDate = addDays(janFirst, weekDayNumber+7*(weekNumber-1));
             } else {
               
-              endDate = __addDays(janFirst, 7-janFirst.getDay()+weekDayNumber+7*(weekNumber-1));
+              endDate = addDays(janFirst, 7-janFirst.getDay()+weekDayNumber+7*(weekNumber-1));
             }
             date.day = endDate.getDate();
             date.month = endDate.getMonth();
@@ -5967,14 +5305,28 @@ var ASM_CONSTS = {
             var endDate;
             if (janFirst.getDay()===1) {
               
-               endDate = __addDays(janFirst, weekDayNumber+7*(weekNumber-1));
+               endDate = addDays(janFirst, weekDayNumber+7*(weekNumber-1));
             } else {
               
-              endDate = __addDays(janFirst, 7-janFirst.getDay()+1+weekDayNumber+7*(weekNumber-1));
+              endDate = addDays(janFirst, 7-janFirst.getDay()+1+weekDayNumber+7*(weekNumber-1));
             }
   
             date.day = endDate.getDate();
             date.month = endDate.getMonth();
+          }
+        }
+  
+        
+        if ((value = getMatch('z'))) {
+          
+          if (value.toLowerCase() === 'z'){
+            date.gmtoff = 0;
+          } else {          
+            var match = value.match(/^((?:\-|\+)\d\d):?(\d\d)?/);
+            date.gmtoff = match[1] * 3600;
+            if (match[2]) {
+              date.gmtoff += date.gmtoff >0 ? match[2] * 60 : -match[2] * 60
+            }
           }
         }
   
@@ -5988,1483 +5340,393 @@ var ASM_CONSTS = {
         HEAP32[(((tm)+(16))>>2)] = fullDate.getMonth();
         HEAP32[(((tm)+(20))>>2)] = fullDate.getFullYear()-1900;
         HEAP32[(((tm)+(24))>>2)] = fullDate.getDay();
-        HEAP32[(((tm)+(28))>>2)] = __arraySum(__isLeapYear(fullDate.getFullYear()) ? __MONTH_DAYS_LEAP : __MONTH_DAYS_REGULAR, fullDate.getMonth()-1)+fullDate.getDate()-1;
+        HEAP32[(((tm)+(28))>>2)] = arraySum(isLeapYear(fullDate.getFullYear()) ? MONTH_DAYS_LEAP : MONTH_DAYS_REGULAR, fullDate.getMonth()-1)+fullDate.getDate()-1;
         HEAP32[(((tm)+(32))>>2)] = 0;
-  
+        HEAP32[(((tm)+(36))>>2)] = date.gmtoff;
+   
         
         
         return buf+intArrayFromString(matches[0]).length-1;
       }
   
       return 0;
-    }
+    };
 
-  function _time(ptr) {
+  FS.createPreloadedFile = FS_createPreloadedFile;
+  FS.staticInit();
+  
+  ;
+
+      
+      
+      MEMFS.doesNotExistError = new FS.ErrnoError(44);
+      
+      MEMFS.doesNotExistError.stack = '<generic error, no stack>';
       ;
-      var ret = (Date.now()/1000)|0;
-      if (ptr) {
-        HEAP32[((ptr)>>2)] = ret;
-      }
-      return ret;
-    }
-
-  var FSNode =  function(parent, name, mode, rdev) {
-    if (!parent) {
-      parent = this;  
-    }
-    this.parent = parent;
-    this.mount = parent.mount;
-    this.mounted = null;
-    this.id = FS.nextInode++;
-    this.name = name;
-    this.mode = mode;
-    this.node_ops = {};
-    this.stream_ops = {};
-    this.rdev = rdev;
-  };
-  var readMode = 292 | 73;
-  var writeMode = 146;
-  Object.defineProperties(FSNode.prototype, {
-   read: {
-    get: function() {
-     return (this.mode & readMode) === readMode;
-    },
-    set: function(val) {
-     val ? this.mode |= readMode : this.mode &= ~readMode;
-    }
-   },
-   write: {
-    get: function() {
-     return (this.mode & writeMode) === writeMode;
-    },
-    set: function(val) {
-     val ? this.mode |= writeMode : this.mode &= ~writeMode;
-    }
-   },
-   isFolder: {
-    get: function() {
-     return FS.isDir(this.mode);
-    }
-   },
-   isDevice: {
-    get: function() {
-     return FS.isChrdev(this.mode);
-    }
-   }
-  });
-  FS.FSNode = FSNode;
-  FS.staticInit();;
-var ASSERTIONS = false;
-
-
-
-
-function intArrayFromString(stringy, dontAddNull, length) {
-  var len = length > 0 ? length : lengthBytesUTF8(stringy)+1;
-  var u8array = new Array(len);
-  var numBytesWritten = stringToUTF8Array(stringy, u8array, 0, u8array.length);
-  if (dontAddNull) u8array.length = numBytesWritten;
-  return u8array;
-}
-
-function intArrayToString(array) {
-  var ret = [];
-  for (var i = 0; i < array.length; i++) {
-    var chr = array[i];
-    if (chr > 0xFF) {
-      if (ASSERTIONS) {
-        assert(false, 'Character code ' + chr + ' (' + String.fromCharCode(chr) + ')  at offset ' + i + ' not in 0x00-0xFF.');
-      }
-      chr &= 0xFF;
-    }
-    ret.push(String.fromCharCode(chr));
-  }
-  return ret.join('');
-}
-
-
-var asmLibraryArg = {
-  "__syscall_chmod": ___syscall_chmod,
-  "__syscall_chown32": ___syscall_chown32,
-  "__syscall_connect": ___syscall_connect,
-  "__syscall_faccessat": ___syscall_faccessat,
-  "__syscall_fchmod": ___syscall_fchmod,
-  "__syscall_fchown32": ___syscall_fchown32,
-  "__syscall_fcntl64": ___syscall_fcntl64,
-  "__syscall_fdatasync": ___syscall_fdatasync,
-  "__syscall_fstat64": ___syscall_fstat64,
-  "__syscall_fstatat64": ___syscall_fstatat64,
-  "__syscall_ftruncate64": ___syscall_ftruncate64,
-  "__syscall_getcwd": ___syscall_getcwd,
-  "__syscall_geteuid32": ___syscall_geteuid32,
-  "__syscall_ioctl": ___syscall_ioctl,
-  "__syscall_lstat64": ___syscall_lstat64,
-  "__syscall_mkdir": ___syscall_mkdir,
-  "__syscall_open": ___syscall_open,
-  "__syscall_readlink": ___syscall_readlink,
-  "__syscall_rename": ___syscall_rename,
-  "__syscall_rmdir": ___syscall_rmdir,
-  "__syscall_socket": ___syscall_socket,
-  "__syscall_stat64": ___syscall_stat64,
-  "__syscall_unlink": ___syscall_unlink,
-  "__syscall_utimensat": ___syscall_utimensat,
-  "_dlopen_js": __dlopen_js,
-  "_dlsym_js": __dlsym_js,
-  "_gmtime_js": __gmtime_js,
-  "_localtime_js": __localtime_js,
-  "_mmap_js": __mmap_js,
-  "_munmap_js": __munmap_js,
-  "_timegm_js": __timegm_js,
-  "_tzset_js": __tzset_js,
-  "emscripten_get_heap_max": _emscripten_get_heap_max,
-  "emscripten_get_now": _emscripten_get_now,
-  "emscripten_resize_heap": _emscripten_resize_heap,
-  "environ_get": _environ_get,
-  "environ_sizes_get": _environ_sizes_get,
-  "fd_close": _fd_close,
-  "fd_fdstat_get": _fd_fdstat_get,
-  "fd_pread": _fd_pread,
-  "fd_pwrite": _fd_pwrite,
-  "fd_read": _fd_read,
-  "fd_seek": _fd_seek,
-  "fd_sync": _fd_sync,
-  "fd_write": _fd_write,
-  "gethostbyname": _gethostbyname,
-  "gettimeofday": _gettimeofday,
-  "memory": wasmMemory,
-  "strftime": _strftime,
-  "strptime": _strptime,
-  "time": _time
-};
-var asm = createWasm();
-
-var ___wasm_call_ctors = Module["___wasm_call_ctors"] = function() {
-  return (___wasm_call_ctors = Module["___wasm_call_ctors"] = Module["asm"]["__wasm_call_ctors"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_pstack_ptr = Module["_sqlite3__wasm_pstack_ptr"] = function() {
-  return (_sqlite3__wasm_pstack_ptr = Module["_sqlite3__wasm_pstack_ptr"] = Module["asm"]["sqlite3__wasm_pstack_ptr"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_pstack_restore = Module["_sqlite3__wasm_pstack_restore"] = function() {
-  return (_sqlite3__wasm_pstack_restore = Module["_sqlite3__wasm_pstack_restore"] = Module["asm"]["sqlite3__wasm_pstack_restore"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_pstack_alloc = Module["_sqlite3__wasm_pstack_alloc"] = function() {
-  return (_sqlite3__wasm_pstack_alloc = Module["_sqlite3__wasm_pstack_alloc"] = Module["asm"]["sqlite3__wasm_pstack_alloc"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_pstack_remaining = Module["_sqlite3__wasm_pstack_remaining"] = function() {
-  return (_sqlite3__wasm_pstack_remaining = Module["_sqlite3__wasm_pstack_remaining"] = Module["asm"]["sqlite3__wasm_pstack_remaining"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_pstack_quota = Module["_sqlite3__wasm_pstack_quota"] = function() {
-  return (_sqlite3__wasm_pstack_quota = Module["_sqlite3__wasm_pstack_quota"] = Module["asm"]["sqlite3__wasm_pstack_quota"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_test_struct = Module["_sqlite3__wasm_test_struct"] = function() {
-  return (_sqlite3__wasm_test_struct = Module["_sqlite3__wasm_test_struct"] = Module["asm"]["sqlite3__wasm_test_struct"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_enum_json = Module["_sqlite3__wasm_enum_json"] = function() {
-  return (_sqlite3__wasm_enum_json = Module["_sqlite3__wasm_enum_json"] = Module["asm"]["sqlite3__wasm_enum_json"]).apply(null, arguments);
-};
-
-
-var _sqlite3_free = Module["_sqlite3_free"] = function() {
-  return (_sqlite3_free = Module["_sqlite3_free"] = Module["asm"]["sqlite3_free"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_vfs_unlink = Module["_sqlite3__wasm_vfs_unlink"] = function() {
-  return (_sqlite3__wasm_vfs_unlink = Module["_sqlite3__wasm_vfs_unlink"] = Module["asm"]["sqlite3__wasm_vfs_unlink"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vfs_find = Module["_sqlite3_vfs_find"] = function() {
-  return (_sqlite3_vfs_find = Module["_sqlite3_vfs_find"] = Module["asm"]["sqlite3_vfs_find"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_db_vfs = Module["_sqlite3__wasm_db_vfs"] = function() {
-  return (_sqlite3__wasm_db_vfs = Module["_sqlite3__wasm_db_vfs"] = Module["asm"]["sqlite3__wasm_db_vfs"]).apply(null, arguments);
-};
-
-
-var _sqlite3_file_control = Module["_sqlite3_file_control"] = function() {
-  return (_sqlite3_file_control = Module["_sqlite3_file_control"] = Module["asm"]["sqlite3_file_control"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_db_reset = Module["_sqlite3__wasm_db_reset"] = function() {
-  return (_sqlite3__wasm_db_reset = Module["_sqlite3__wasm_db_reset"] = Module["asm"]["sqlite3__wasm_db_reset"]).apply(null, arguments);
-};
-
-
-var _sqlite3_table_column_metadata = Module["_sqlite3_table_column_metadata"] = function() {
-  return (_sqlite3_table_column_metadata = Module["_sqlite3_table_column_metadata"] = Module["asm"]["sqlite3_table_column_metadata"]).apply(null, arguments);
-};
-
-
-var _sqlite3_exec = Module["_sqlite3_exec"] = function() {
-  return (_sqlite3_exec = Module["_sqlite3_exec"] = Module["asm"]["sqlite3_exec"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_db_export_chunked = Module["_sqlite3__wasm_db_export_chunked"] = function() {
-  return (_sqlite3__wasm_db_export_chunked = Module["_sqlite3__wasm_db_export_chunked"] = Module["asm"]["sqlite3__wasm_db_export_chunked"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_db_serialize = Module["_sqlite3__wasm_db_serialize"] = function() {
-  return (_sqlite3__wasm_db_serialize = Module["_sqlite3__wasm_db_serialize"] = Module["asm"]["sqlite3__wasm_db_serialize"]).apply(null, arguments);
-};
-
-
-var _sqlite3_randomness = Module["_sqlite3_randomness"] = function() {
-  return (_sqlite3_randomness = Module["_sqlite3_randomness"] = Module["asm"]["sqlite3_randomness"]).apply(null, arguments);
-};
-
-
-var _sqlite3_open_v2 = Module["_sqlite3_open_v2"] = function() {
-  return (_sqlite3_open_v2 = Module["_sqlite3_open_v2"] = Module["asm"]["sqlite3_open_v2"]).apply(null, arguments);
-};
-
-
-var _sqlite3_errcode = Module["_sqlite3_errcode"] = function() {
-  return (_sqlite3_errcode = Module["_sqlite3_errcode"] = Module["asm"]["sqlite3_errcode"]).apply(null, arguments);
-};
-
-
-var _sqlite3_malloc64 = Module["_sqlite3_malloc64"] = function() {
-  return (_sqlite3_malloc64 = Module["_sqlite3_malloc64"] = Module["asm"]["sqlite3_malloc64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_serialize = Module["_sqlite3_serialize"] = function() {
-  return (_sqlite3_serialize = Module["_sqlite3_serialize"] = Module["asm"]["sqlite3_serialize"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_vfs_create_file = Module["_sqlite3__wasm_vfs_create_file"] = function() {
-  return (_sqlite3__wasm_vfs_create_file = Module["_sqlite3__wasm_vfs_create_file"] = Module["asm"]["sqlite3__wasm_vfs_create_file"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_posix_create_file = Module["_sqlite3__wasm_posix_create_file"] = function() {
-  return (_sqlite3__wasm_posix_create_file = Module["_sqlite3__wasm_posix_create_file"] = Module["asm"]["sqlite3__wasm_posix_create_file"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_vtab_config = Module["_sqlite3__wasm_vtab_config"] = function() {
-  return (_sqlite3__wasm_vtab_config = Module["_sqlite3__wasm_vtab_config"] = Module["asm"]["sqlite3__wasm_vtab_config"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_db_config_ip = Module["_sqlite3__wasm_db_config_ip"] = function() {
-  return (_sqlite3__wasm_db_config_ip = Module["_sqlite3__wasm_db_config_ip"] = Module["asm"]["sqlite3__wasm_db_config_ip"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_db_config_pii = Module["_sqlite3__wasm_db_config_pii"] = function() {
-  return (_sqlite3__wasm_db_config_pii = Module["_sqlite3__wasm_db_config_pii"] = Module["asm"]["sqlite3__wasm_db_config_pii"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_db_config_s = Module["_sqlite3__wasm_db_config_s"] = function() {
-  return (_sqlite3__wasm_db_config_s = Module["_sqlite3__wasm_db_config_s"] = Module["asm"]["sqlite3__wasm_db_config_s"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_config_i = Module["_sqlite3__wasm_config_i"] = function() {
-  return (_sqlite3__wasm_config_i = Module["_sqlite3__wasm_config_i"] = Module["asm"]["sqlite3__wasm_config_i"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_config_ii = Module["_sqlite3__wasm_config_ii"] = function() {
-  return (_sqlite3__wasm_config_ii = Module["_sqlite3__wasm_config_ii"] = Module["asm"]["sqlite3__wasm_config_ii"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_config_j = Module["_sqlite3__wasm_config_j"] = function() {
-  return (_sqlite3__wasm_config_j = Module["_sqlite3__wasm_config_j"] = Module["asm"]["sqlite3__wasm_config_j"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_qfmt_token = Module["_sqlite3__wasm_qfmt_token"] = function() {
-  return (_sqlite3__wasm_qfmt_token = Module["_sqlite3__wasm_qfmt_token"] = Module["asm"]["sqlite3__wasm_qfmt_token"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_init_wasmfs = Module["_sqlite3__wasm_init_wasmfs"] = function() {
-  return (_sqlite3__wasm_init_wasmfs = Module["_sqlite3__wasm_init_wasmfs"] = Module["asm"]["sqlite3__wasm_init_wasmfs"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_test_intptr = Module["_sqlite3__wasm_test_intptr"] = function() {
-  return (_sqlite3__wasm_test_intptr = Module["_sqlite3__wasm_test_intptr"] = Module["asm"]["sqlite3__wasm_test_intptr"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_test_voidptr = Module["_sqlite3__wasm_test_voidptr"] = function() {
-  return (_sqlite3__wasm_test_voidptr = Module["_sqlite3__wasm_test_voidptr"] = Module["asm"]["sqlite3__wasm_test_voidptr"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_test_int64_max = Module["_sqlite3__wasm_test_int64_max"] = function() {
-  return (_sqlite3__wasm_test_int64_max = Module["_sqlite3__wasm_test_int64_max"] = Module["asm"]["sqlite3__wasm_test_int64_max"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_test_int64_min = Module["_sqlite3__wasm_test_int64_min"] = function() {
-  return (_sqlite3__wasm_test_int64_min = Module["_sqlite3__wasm_test_int64_min"] = Module["asm"]["sqlite3__wasm_test_int64_min"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_test_int64_times2 = Module["_sqlite3__wasm_test_int64_times2"] = function() {
-  return (_sqlite3__wasm_test_int64_times2 = Module["_sqlite3__wasm_test_int64_times2"] = Module["asm"]["sqlite3__wasm_test_int64_times2"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_test_int64_minmax = Module["_sqlite3__wasm_test_int64_minmax"] = function() {
-  return (_sqlite3__wasm_test_int64_minmax = Module["_sqlite3__wasm_test_int64_minmax"] = Module["asm"]["sqlite3__wasm_test_int64_minmax"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_test_int64ptr = Module["_sqlite3__wasm_test_int64ptr"] = function() {
-  return (_sqlite3__wasm_test_int64ptr = Module["_sqlite3__wasm_test_int64ptr"] = Module["asm"]["sqlite3__wasm_test_int64ptr"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_test_stack_overflow = Module["_sqlite3__wasm_test_stack_overflow"] = function() {
-  return (_sqlite3__wasm_test_stack_overflow = Module["_sqlite3__wasm_test_stack_overflow"] = Module["asm"]["sqlite3__wasm_test_stack_overflow"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_test_str_hello = Module["_sqlite3__wasm_test_str_hello"] = function() {
-  return (_sqlite3__wasm_test_str_hello = Module["_sqlite3__wasm_test_str_hello"] = Module["asm"]["sqlite3__wasm_test_str_hello"]).apply(null, arguments);
-};
-
-
-var _sqlite3_malloc = Module["_sqlite3_malloc"] = function() {
-  return (_sqlite3_malloc = Module["_sqlite3_malloc"] = Module["asm"]["sqlite3_malloc"]).apply(null, arguments);
-};
-
-
-var _sqlite3__wasm_SQLTester_strglob = Module["_sqlite3__wasm_SQLTester_strglob"] = function() {
-  return (_sqlite3__wasm_SQLTester_strglob = Module["_sqlite3__wasm_SQLTester_strglob"] = Module["asm"]["sqlite3__wasm_SQLTester_strglob"]).apply(null, arguments);
-};
-
-
-var _sqlite3_set_authorizer = Module["_sqlite3_set_authorizer"] = function() {
-  return (_sqlite3_set_authorizer = Module["_sqlite3_set_authorizer"] = Module["asm"]["sqlite3_set_authorizer"]).apply(null, arguments);
-};
-
-
-var _sqlite3_complete = Module["_sqlite3_complete"] = function() {
-  return (_sqlite3_complete = Module["_sqlite3_complete"] = Module["asm"]["sqlite3_complete"]).apply(null, arguments);
-};
-
-
-var _sqlite3_strglob = Module["_sqlite3_strglob"] = function() {
-  return (_sqlite3_strglob = Module["_sqlite3_strglob"] = Module["asm"]["sqlite3_strglob"]).apply(null, arguments);
-};
-
-
-var _sqlite3_strlike = Module["_sqlite3_strlike"] = function() {
-  return (_sqlite3_strlike = Module["_sqlite3_strlike"] = Module["asm"]["sqlite3_strlike"]).apply(null, arguments);
-};
-
-
-var _sqlite3_prepare_v2 = Module["_sqlite3_prepare_v2"] = function() {
-  return (_sqlite3_prepare_v2 = Module["_sqlite3_prepare_v2"] = Module["asm"]["sqlite3_prepare_v2"]).apply(null, arguments);
-};
-
-
-var _sqlite3_step = Module["_sqlite3_step"] = function() {
-  return (_sqlite3_step = Module["_sqlite3_step"] = Module["asm"]["sqlite3_step"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_count = Module["_sqlite3_column_count"] = function() {
-  return (_sqlite3_column_count = Module["_sqlite3_column_count"] = Module["asm"]["sqlite3_column_count"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_name = Module["_sqlite3_column_name"] = function() {
-  return (_sqlite3_column_name = Module["_sqlite3_column_name"] = Module["asm"]["sqlite3_column_name"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_text = Module["_sqlite3_column_text"] = function() {
-  return (_sqlite3_column_text = Module["_sqlite3_column_text"] = Module["asm"]["sqlite3_column_text"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_type = Module["_sqlite3_column_type"] = function() {
-  return (_sqlite3_column_type = Module["_sqlite3_column_type"] = Module["asm"]["sqlite3_column_type"]).apply(null, arguments);
-};
-
-
-var _sqlite3_errmsg = Module["_sqlite3_errmsg"] = function() {
-  return (_sqlite3_errmsg = Module["_sqlite3_errmsg"] = Module["asm"]["sqlite3_errmsg"]).apply(null, arguments);
-};
-
-
-var _sqlite3_auto_extension = Module["_sqlite3_auto_extension"] = function() {
-  return (_sqlite3_auto_extension = Module["_sqlite3_auto_extension"] = Module["asm"]["sqlite3_auto_extension"]).apply(null, arguments);
-};
-
-
-var _sqlite3_cancel_auto_extension = Module["_sqlite3_cancel_auto_extension"] = function() {
-  return (_sqlite3_cancel_auto_extension = Module["_sqlite3_cancel_auto_extension"] = Module["asm"]["sqlite3_cancel_auto_extension"]).apply(null, arguments);
-};
-
-
-var _sqlite3_reset_auto_extension = Module["_sqlite3_reset_auto_extension"] = function() {
-  return (_sqlite3_reset_auto_extension = Module["_sqlite3_reset_auto_extension"] = Module["asm"]["sqlite3_reset_auto_extension"]).apply(null, arguments);
-};
-
-
-var _sqlite3_libversion = Module["_sqlite3_libversion"] = function() {
-  return (_sqlite3_libversion = Module["_sqlite3_libversion"] = Module["asm"]["sqlite3_libversion"]).apply(null, arguments);
-};
-
-
-var _sqlite3_sourceid = Module["_sqlite3_sourceid"] = function() {
-  return (_sqlite3_sourceid = Module["_sqlite3_sourceid"] = Module["asm"]["sqlite3_sourceid"]).apply(null, arguments);
-};
-
-
-var _sqlite3_libversion_number = Module["_sqlite3_libversion_number"] = function() {
-  return (_sqlite3_libversion_number = Module["_sqlite3_libversion_number"] = Module["asm"]["sqlite3_libversion_number"]).apply(null, arguments);
-};
-
-
-var _sqlite3_initialize = Module["_sqlite3_initialize"] = function() {
-  return (_sqlite3_initialize = Module["_sqlite3_initialize"] = Module["asm"]["sqlite3_initialize"]).apply(null, arguments);
-};
-
-
-var _sqlite3_shutdown = Module["_sqlite3_shutdown"] = function() {
-  return (_sqlite3_shutdown = Module["_sqlite3_shutdown"] = Module["asm"]["sqlite3_shutdown"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_type = Module["_sqlite3_value_type"] = function() {
-  return (_sqlite3_value_type = Module["_sqlite3_value_type"] = Module["asm"]["sqlite3_value_type"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_double = Module["_sqlite3_value_double"] = function() {
-  return (_sqlite3_value_double = Module["_sqlite3_value_double"] = Module["asm"]["sqlite3_value_double"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_int64 = Module["_sqlite3_value_int64"] = function() {
-  return (_sqlite3_value_int64 = Module["_sqlite3_value_int64"] = Module["asm"]["sqlite3_value_int64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_blob = Module["_sqlite3_value_blob"] = function() {
-  return (_sqlite3_value_blob = Module["_sqlite3_value_blob"] = Module["asm"]["sqlite3_value_blob"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_bytes = Module["_sqlite3_value_bytes"] = function() {
-  return (_sqlite3_value_bytes = Module["_sqlite3_value_bytes"] = Module["asm"]["sqlite3_value_bytes"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_text = Module["_sqlite3_value_text"] = function() {
-  return (_sqlite3_value_text = Module["_sqlite3_value_text"] = Module["asm"]["sqlite3_value_text"]).apply(null, arguments);
-};
-
-
-var _sqlite3_overload_function = Module["_sqlite3_overload_function"] = function() {
-  return (_sqlite3_overload_function = Module["_sqlite3_overload_function"] = Module["asm"]["sqlite3_overload_function"]).apply(null, arguments);
-};
-
-
-var _sqlite3_strnicmp = Module["_sqlite3_strnicmp"] = function() {
-  return (_sqlite3_strnicmp = Module["_sqlite3_strnicmp"] = Module["asm"]["sqlite3_strnicmp"]).apply(null, arguments);
-};
-
-
-var _sqlite3_context_db_handle = Module["_sqlite3_context_db_handle"] = function() {
-  return (_sqlite3_context_db_handle = Module["_sqlite3_context_db_handle"] = Module["asm"]["sqlite3_context_db_handle"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_int = Module["_sqlite3_value_int"] = function() {
-  return (_sqlite3_value_int = Module["_sqlite3_value_int"] = Module["asm"]["sqlite3_value_int"]).apply(null, arguments);
-};
-
-
-var _sqlite3_stricmp = Module["_sqlite3_stricmp"] = function() {
-  return (_sqlite3_stricmp = Module["_sqlite3_stricmp"] = Module["asm"]["sqlite3_stricmp"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_error_code = Module["_sqlite3_result_error_code"] = function() {
-  return (_sqlite3_result_error_code = Module["_sqlite3_result_error_code"] = Module["asm"]["sqlite3_result_error_code"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_int = Module["_sqlite3_result_int"] = function() {
-  return (_sqlite3_result_int = Module["_sqlite3_result_int"] = Module["asm"]["sqlite3_result_int"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_text = Module["_sqlite3_result_text"] = function() {
-  return (_sqlite3_result_text = Module["_sqlite3_result_text"] = Module["asm"]["sqlite3_result_text"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_error = Module["_sqlite3_result_error"] = function() {
-  return (_sqlite3_result_error = Module["_sqlite3_result_error"] = Module["asm"]["sqlite3_result_error"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_error_nomem = Module["_sqlite3_result_error_nomem"] = function() {
-  return (_sqlite3_result_error_nomem = Module["_sqlite3_result_error_nomem"] = Module["asm"]["sqlite3_result_error_nomem"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_subtype = Module["_sqlite3_result_subtype"] = function() {
-  return (_sqlite3_result_subtype = Module["_sqlite3_result_subtype"] = Module["asm"]["sqlite3_result_subtype"]).apply(null, arguments);
-};
-
-
-var _sqlite3_user_data = Module["_sqlite3_user_data"] = function() {
-  return (_sqlite3_user_data = Module["_sqlite3_user_data"] = Module["asm"]["sqlite3_user_data"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_int64 = Module["_sqlite3_result_int64"] = function() {
-  return (_sqlite3_result_int64 = Module["_sqlite3_result_int64"] = Module["asm"]["sqlite3_result_int64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_aggregate_context = Module["_sqlite3_aggregate_context"] = function() {
-  return (_sqlite3_aggregate_context = Module["_sqlite3_aggregate_context"] = Module["asm"]["sqlite3_aggregate_context"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_blob = Module["_sqlite3_result_blob"] = function() {
-  return (_sqlite3_result_blob = Module["_sqlite3_result_blob"] = Module["asm"]["sqlite3_result_blob"]).apply(null, arguments);
-};
-
-
-var _sqlite3_get_auxdata = Module["_sqlite3_get_auxdata"] = function() {
-  return (_sqlite3_get_auxdata = Module["_sqlite3_get_auxdata"] = Module["asm"]["sqlite3_get_auxdata"]).apply(null, arguments);
-};
-
-
-var _sqlite3_set_auxdata = Module["_sqlite3_set_auxdata"] = function() {
-  return (_sqlite3_set_auxdata = Module["_sqlite3_set_auxdata"] = Module["asm"]["sqlite3_set_auxdata"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_subtype = Module["_sqlite3_value_subtype"] = function() {
-  return (_sqlite3_value_subtype = Module["_sqlite3_value_subtype"] = Module["asm"]["sqlite3_value_subtype"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_null = Module["_sqlite3_result_null"] = function() {
-  return (_sqlite3_result_null = Module["_sqlite3_result_null"] = Module["asm"]["sqlite3_result_null"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_double = Module["_sqlite3_result_double"] = function() {
-  return (_sqlite3_result_double = Module["_sqlite3_result_double"] = Module["asm"]["sqlite3_result_double"]).apply(null, arguments);
-};
-
-
-var _sqlite3_declare_vtab = Module["_sqlite3_declare_vtab"] = function() {
-  return (_sqlite3_declare_vtab = Module["_sqlite3_declare_vtab"] = Module["asm"]["sqlite3_declare_vtab"]).apply(null, arguments);
-};
-
-
-var _sqlite3_realloc64 = Module["_sqlite3_realloc64"] = function() {
-  return (_sqlite3_realloc64 = Module["_sqlite3_realloc64"] = Module["asm"]["sqlite3_realloc64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_blob = Module["_sqlite3_bind_blob"] = function() {
-  return (_sqlite3_bind_blob = Module["_sqlite3_bind_blob"] = Module["asm"]["sqlite3_bind_blob"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_double = Module["_sqlite3_bind_double"] = function() {
-  return (_sqlite3_bind_double = Module["_sqlite3_bind_double"] = Module["asm"]["sqlite3_bind_double"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_int = Module["_sqlite3_bind_int"] = function() {
-  return (_sqlite3_bind_int = Module["_sqlite3_bind_int"] = Module["asm"]["sqlite3_bind_int"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_int64 = Module["_sqlite3_bind_int64"] = function() {
-  return (_sqlite3_bind_int64 = Module["_sqlite3_bind_int64"] = Module["asm"]["sqlite3_bind_int64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_null = Module["_sqlite3_bind_null"] = function() {
-  return (_sqlite3_bind_null = Module["_sqlite3_bind_null"] = Module["asm"]["sqlite3_bind_null"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_parameter_count = Module["_sqlite3_bind_parameter_count"] = function() {
-  return (_sqlite3_bind_parameter_count = Module["_sqlite3_bind_parameter_count"] = Module["asm"]["sqlite3_bind_parameter_count"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_parameter_index = Module["_sqlite3_bind_parameter_index"] = function() {
-  return (_sqlite3_bind_parameter_index = Module["_sqlite3_bind_parameter_index"] = Module["asm"]["sqlite3_bind_parameter_index"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_parameter_name = Module["_sqlite3_bind_parameter_name"] = function() {
-  return (_sqlite3_bind_parameter_name = Module["_sqlite3_bind_parameter_name"] = Module["asm"]["sqlite3_bind_parameter_name"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_text = Module["_sqlite3_bind_text"] = function() {
-  return (_sqlite3_bind_text = Module["_sqlite3_bind_text"] = Module["asm"]["sqlite3_bind_text"]).apply(null, arguments);
-};
-
-
-var _sqlite3_busy_handler = Module["_sqlite3_busy_handler"] = function() {
-  return (_sqlite3_busy_handler = Module["_sqlite3_busy_handler"] = Module["asm"]["sqlite3_busy_handler"]).apply(null, arguments);
-};
-
-
-var _sqlite3_busy_timeout = Module["_sqlite3_busy_timeout"] = function() {
-  return (_sqlite3_busy_timeout = Module["_sqlite3_busy_timeout"] = Module["asm"]["sqlite3_busy_timeout"]).apply(null, arguments);
-};
-
-
-var _sqlite3_changes = Module["_sqlite3_changes"] = function() {
-  return (_sqlite3_changes = Module["_sqlite3_changes"] = Module["asm"]["sqlite3_changes"]).apply(null, arguments);
-};
-
-
-var _sqlite3_collation_needed = Module["_sqlite3_collation_needed"] = function() {
-  return (_sqlite3_collation_needed = Module["_sqlite3_collation_needed"] = Module["asm"]["sqlite3_collation_needed"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_blob = Module["_sqlite3_column_blob"] = function() {
-  return (_sqlite3_column_blob = Module["_sqlite3_column_blob"] = Module["asm"]["sqlite3_column_blob"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_bytes = Module["_sqlite3_column_bytes"] = function() {
-  return (_sqlite3_column_bytes = Module["_sqlite3_column_bytes"] = Module["asm"]["sqlite3_column_bytes"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_database_name = Module["_sqlite3_column_database_name"] = function() {
-  return (_sqlite3_column_database_name = Module["_sqlite3_column_database_name"] = Module["asm"]["sqlite3_column_database_name"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_decltype = Module["_sqlite3_column_decltype"] = function() {
-  return (_sqlite3_column_decltype = Module["_sqlite3_column_decltype"] = Module["asm"]["sqlite3_column_decltype"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_double = Module["_sqlite3_column_double"] = function() {
-  return (_sqlite3_column_double = Module["_sqlite3_column_double"] = Module["asm"]["sqlite3_column_double"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_int = Module["_sqlite3_column_int"] = function() {
-  return (_sqlite3_column_int = Module["_sqlite3_column_int"] = Module["asm"]["sqlite3_column_int"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_int64 = Module["_sqlite3_column_int64"] = function() {
-  return (_sqlite3_column_int64 = Module["_sqlite3_column_int64"] = Module["asm"]["sqlite3_column_int64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_origin_name = Module["_sqlite3_column_origin_name"] = function() {
-  return (_sqlite3_column_origin_name = Module["_sqlite3_column_origin_name"] = Module["asm"]["sqlite3_column_origin_name"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_table_name = Module["_sqlite3_column_table_name"] = function() {
-  return (_sqlite3_column_table_name = Module["_sqlite3_column_table_name"] = Module["asm"]["sqlite3_column_table_name"]).apply(null, arguments);
-};
-
-
-var _sqlite3_column_value = Module["_sqlite3_column_value"] = function() {
-  return (_sqlite3_column_value = Module["_sqlite3_column_value"] = Module["asm"]["sqlite3_column_value"]).apply(null, arguments);
-};
-
-
-var _sqlite3_commit_hook = Module["_sqlite3_commit_hook"] = function() {
-  return (_sqlite3_commit_hook = Module["_sqlite3_commit_hook"] = Module["asm"]["sqlite3_commit_hook"]).apply(null, arguments);
-};
-
-
-var _sqlite3_create_collation = Module["_sqlite3_create_collation"] = function() {
-  return (_sqlite3_create_collation = Module["_sqlite3_create_collation"] = Module["asm"]["sqlite3_create_collation"]).apply(null, arguments);
-};
-
-
-var _sqlite3_create_function = Module["_sqlite3_create_function"] = function() {
-  return (_sqlite3_create_function = Module["_sqlite3_create_function"] = Module["asm"]["sqlite3_create_function"]).apply(null, arguments);
-};
-
-
-var _sqlite3_create_module = Module["_sqlite3_create_module"] = function() {
-  return (_sqlite3_create_module = Module["_sqlite3_create_module"] = Module["asm"]["sqlite3_create_module"]).apply(null, arguments);
-};
-
-
-var _sqlite3_data_count = Module["_sqlite3_data_count"] = function() {
-  return (_sqlite3_data_count = Module["_sqlite3_data_count"] = Module["asm"]["sqlite3_data_count"]).apply(null, arguments);
-};
-
-
-var _sqlite3_db_handle = Module["_sqlite3_db_handle"] = function() {
-  return (_sqlite3_db_handle = Module["_sqlite3_db_handle"] = Module["asm"]["sqlite3_db_handle"]).apply(null, arguments);
-};
-
-
-var _sqlite3_finalize = Module["_sqlite3_finalize"] = function() {
-  return (_sqlite3_finalize = Module["_sqlite3_finalize"] = Module["asm"]["sqlite3_finalize"]).apply(null, arguments);
-};
-
-
-var _sqlite3_get_autocommit = Module["_sqlite3_get_autocommit"] = function() {
-  return (_sqlite3_get_autocommit = Module["_sqlite3_get_autocommit"] = Module["asm"]["sqlite3_get_autocommit"]).apply(null, arguments);
-};
-
-
-var _sqlite3_interrupt = Module["_sqlite3_interrupt"] = function() {
-  return (_sqlite3_interrupt = Module["_sqlite3_interrupt"] = Module["asm"]["sqlite3_interrupt"]).apply(null, arguments);
-};
-
-
-var _sqlite3_last_insert_rowid = Module["_sqlite3_last_insert_rowid"] = function() {
-  return (_sqlite3_last_insert_rowid = Module["_sqlite3_last_insert_rowid"] = Module["asm"]["sqlite3_last_insert_rowid"]).apply(null, arguments);
-};
-
-
-var _sqlite3_open = Module["_sqlite3_open"] = function() {
-  return (_sqlite3_open = Module["_sqlite3_open"] = Module["asm"]["sqlite3_open"]).apply(null, arguments);
-};
-
-
-var _sqlite3_progress_handler = Module["_sqlite3_progress_handler"] = function() {
-  return (_sqlite3_progress_handler = Module["_sqlite3_progress_handler"] = Module["asm"]["sqlite3_progress_handler"]).apply(null, arguments);
-};
-
-
-var _sqlite3_realloc = Module["_sqlite3_realloc"] = function() {
-  return (_sqlite3_realloc = Module["_sqlite3_realloc"] = Module["asm"]["sqlite3_realloc"]).apply(null, arguments);
-};
-
-
-var _sqlite3_reset = Module["_sqlite3_reset"] = function() {
-  return (_sqlite3_reset = Module["_sqlite3_reset"] = Module["asm"]["sqlite3_reset"]).apply(null, arguments);
-};
-
-
-var _sqlite3_rollback_hook = Module["_sqlite3_rollback_hook"] = function() {
-  return (_sqlite3_rollback_hook = Module["_sqlite3_rollback_hook"] = Module["asm"]["sqlite3_rollback_hook"]).apply(null, arguments);
-};
-
-
-var _sqlite3_total_changes = Module["_sqlite3_total_changes"] = function() {
-  return (_sqlite3_total_changes = Module["_sqlite3_total_changes"] = Module["asm"]["sqlite3_total_changes"]).apply(null, arguments);
-};
-
-
-var _sqlite3_update_hook = Module["_sqlite3_update_hook"] = function() {
-  return (_sqlite3_update_hook = Module["_sqlite3_update_hook"] = Module["asm"]["sqlite3_update_hook"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_numeric_type = Module["_sqlite3_value_numeric_type"] = function() {
-  return (_sqlite3_value_numeric_type = Module["_sqlite3_value_numeric_type"] = Module["asm"]["sqlite3_value_numeric_type"]).apply(null, arguments);
-};
-
-
-var _sqlite3_clear_bindings = Module["_sqlite3_clear_bindings"] = function() {
-  return (_sqlite3_clear_bindings = Module["_sqlite3_clear_bindings"] = Module["asm"]["sqlite3_clear_bindings"]).apply(null, arguments);
-};
-
-
-var _sqlite3_create_module_v2 = Module["_sqlite3_create_module_v2"] = function() {
-  return (_sqlite3_create_module_v2 = Module["_sqlite3_create_module_v2"] = Module["asm"]["sqlite3_create_module_v2"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_zeroblob = Module["_sqlite3_bind_zeroblob"] = function() {
-  return (_sqlite3_bind_zeroblob = Module["_sqlite3_bind_zeroblob"] = Module["asm"]["sqlite3_bind_zeroblob"]).apply(null, arguments);
-};
-
-
-var _sqlite3_create_collation_v2 = Module["_sqlite3_create_collation_v2"] = function() {
-  return (_sqlite3_create_collation_v2 = Module["_sqlite3_create_collation_v2"] = Module["asm"]["sqlite3_create_collation_v2"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_error_toobig = Module["_sqlite3_result_error_toobig"] = function() {
-  return (_sqlite3_result_error_toobig = Module["_sqlite3_result_error_toobig"] = Module["asm"]["sqlite3_result_error_toobig"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vfs_register = Module["_sqlite3_vfs_register"] = function() {
-  return (_sqlite3_vfs_register = Module["_sqlite3_vfs_register"] = Module["asm"]["sqlite3_vfs_register"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vfs_unregister = Module["_sqlite3_vfs_unregister"] = function() {
-  return (_sqlite3_vfs_unregister = Module["_sqlite3_vfs_unregister"] = Module["asm"]["sqlite3_vfs_unregister"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_zeroblob = Module["_sqlite3_result_zeroblob"] = function() {
-  return (_sqlite3_result_zeroblob = Module["_sqlite3_result_zeroblob"] = Module["asm"]["sqlite3_result_zeroblob"]).apply(null, arguments);
-};
-
-
-var _sqlite3_extended_result_codes = Module["_sqlite3_extended_result_codes"] = function() {
-  return (_sqlite3_extended_result_codes = Module["_sqlite3_extended_result_codes"] = Module["asm"]["sqlite3_extended_result_codes"]).apply(null, arguments);
-};
-
-
-var _sqlite3_limit = Module["_sqlite3_limit"] = function() {
-  return (_sqlite3_limit = Module["_sqlite3_limit"] = Module["asm"]["sqlite3_limit"]).apply(null, arguments);
-};
-
-
-var _sqlite3_next_stmt = Module["_sqlite3_next_stmt"] = function() {
-  return (_sqlite3_next_stmt = Module["_sqlite3_next_stmt"] = Module["asm"]["sqlite3_next_stmt"]).apply(null, arguments);
-};
-
-
-var _sqlite3_sql = Module["_sqlite3_sql"] = function() {
-  return (_sqlite3_sql = Module["_sqlite3_sql"] = Module["asm"]["sqlite3_sql"]).apply(null, arguments);
-};
-
-
-var _sqlite3_status = Module["_sqlite3_status"] = function() {
-  return (_sqlite3_status = Module["_sqlite3_status"] = Module["asm"]["sqlite3_status"]).apply(null, arguments);
-};
-
-
-var _sqlite3_compileoption_get = Module["_sqlite3_compileoption_get"] = function() {
-  return (_sqlite3_compileoption_get = Module["_sqlite3_compileoption_get"] = Module["asm"]["sqlite3_compileoption_get"]).apply(null, arguments);
-};
-
-
-var _sqlite3_compileoption_used = Module["_sqlite3_compileoption_used"] = function() {
-  return (_sqlite3_compileoption_used = Module["_sqlite3_compileoption_used"] = Module["asm"]["sqlite3_compileoption_used"]).apply(null, arguments);
-};
-
-
-var _sqlite3_create_function_v2 = Module["_sqlite3_create_function_v2"] = function() {
-  return (_sqlite3_create_function_v2 = Module["_sqlite3_create_function_v2"] = Module["asm"]["sqlite3_create_function_v2"]).apply(null, arguments);
-};
-
-
-var _sqlite3_db_status = Module["_sqlite3_db_status"] = function() {
-  return (_sqlite3_db_status = Module["_sqlite3_db_status"] = Module["asm"]["sqlite3_db_status"]).apply(null, arguments);
-};
-
-
-var _sqlite3_extended_errcode = Module["_sqlite3_extended_errcode"] = function() {
-  return (_sqlite3_extended_errcode = Module["_sqlite3_extended_errcode"] = Module["asm"]["sqlite3_extended_errcode"]).apply(null, arguments);
-};
-
-
-var _sqlite3_stmt_status = Module["_sqlite3_stmt_status"] = function() {
-  return (_sqlite3_stmt_status = Module["_sqlite3_stmt_status"] = Module["asm"]["sqlite3_stmt_status"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vtab_on_conflict = Module["_sqlite3_vtab_on_conflict"] = function() {
-  return (_sqlite3_vtab_on_conflict = Module["_sqlite3_vtab_on_conflict"] = Module["asm"]["sqlite3_vtab_on_conflict"]).apply(null, arguments);
-};
-
-
-var _sqlite3_close_v2 = Module["_sqlite3_close_v2"] = function() {
-  return (_sqlite3_close_v2 = Module["_sqlite3_close_v2"] = Module["asm"]["sqlite3_close_v2"]).apply(null, arguments);
-};
-
-
-var _sqlite3_db_filename = Module["_sqlite3_db_filename"] = function() {
-  return (_sqlite3_db_filename = Module["_sqlite3_db_filename"] = Module["asm"]["sqlite3_db_filename"]).apply(null, arguments);
-};
-
-
-var _sqlite3_db_readonly = Module["_sqlite3_db_readonly"] = function() {
-  return (_sqlite3_db_readonly = Module["_sqlite3_db_readonly"] = Module["asm"]["sqlite3_db_readonly"]).apply(null, arguments);
-};
-
-
-var _sqlite3_errstr = Module["_sqlite3_errstr"] = function() {
-  return (_sqlite3_errstr = Module["_sqlite3_errstr"] = Module["asm"]["sqlite3_errstr"]).apply(null, arguments);
-};
-
-
-var _sqlite3_stmt_busy = Module["_sqlite3_stmt_busy"] = function() {
-  return (_sqlite3_stmt_busy = Module["_sqlite3_stmt_busy"] = Module["asm"]["sqlite3_stmt_busy"]).apply(null, arguments);
-};
-
-
-var _sqlite3_stmt_readonly = Module["_sqlite3_stmt_readonly"] = function() {
-  return (_sqlite3_stmt_readonly = Module["_sqlite3_stmt_readonly"] = Module["asm"]["sqlite3_stmt_readonly"]).apply(null, arguments);
-};
-
-
-var _sqlite3_uri_boolean = Module["_sqlite3_uri_boolean"] = function() {
-  return (_sqlite3_uri_boolean = Module["_sqlite3_uri_boolean"] = Module["asm"]["sqlite3_uri_boolean"]).apply(null, arguments);
-};
-
-
-var _sqlite3_uri_int64 = Module["_sqlite3_uri_int64"] = function() {
-  return (_sqlite3_uri_int64 = Module["_sqlite3_uri_int64"] = Module["asm"]["sqlite3_uri_int64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_uri_parameter = Module["_sqlite3_uri_parameter"] = function() {
-  return (_sqlite3_uri_parameter = Module["_sqlite3_uri_parameter"] = Module["asm"]["sqlite3_uri_parameter"]).apply(null, arguments);
-};
-
-
-var _sqlite3_msize = Module["_sqlite3_msize"] = function() {
-  return (_sqlite3_msize = Module["_sqlite3_msize"] = Module["asm"]["sqlite3_msize"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_dup = Module["_sqlite3_value_dup"] = function() {
-  return (_sqlite3_value_dup = Module["_sqlite3_value_dup"] = Module["asm"]["sqlite3_value_dup"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_free = Module["_sqlite3_value_free"] = function() {
-  return (_sqlite3_value_free = Module["_sqlite3_value_free"] = Module["asm"]["sqlite3_value_free"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_zeroblob64 = Module["_sqlite3_result_zeroblob64"] = function() {
-  return (_sqlite3_result_zeroblob64 = Module["_sqlite3_result_zeroblob64"] = Module["asm"]["sqlite3_result_zeroblob64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_status64 = Module["_sqlite3_status64"] = function() {
-  return (_sqlite3_status64 = Module["_sqlite3_status64"] = Module["asm"]["sqlite3_status64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_trace_v2 = Module["_sqlite3_trace_v2"] = function() {
-  return (_sqlite3_trace_v2 = Module["_sqlite3_trace_v2"] = Module["asm"]["sqlite3_trace_v2"]).apply(null, arguments);
-};
-
-
-var _sqlite3_expanded_sql = Module["_sqlite3_expanded_sql"] = function() {
-  return (_sqlite3_expanded_sql = Module["_sqlite3_expanded_sql"] = Module["asm"]["sqlite3_expanded_sql"]).apply(null, arguments);
-};
-
-
-var _sqlite3_set_last_insert_rowid = Module["_sqlite3_set_last_insert_rowid"] = function() {
-  return (_sqlite3_set_last_insert_rowid = Module["_sqlite3_set_last_insert_rowid"] = Module["asm"]["sqlite3_set_last_insert_rowid"]).apply(null, arguments);
-};
-
-
-var _sqlite3_prepare_v3 = Module["_sqlite3_prepare_v3"] = function() {
-  return (_sqlite3_prepare_v3 = Module["_sqlite3_prepare_v3"] = Module["asm"]["sqlite3_prepare_v3"]).apply(null, arguments);
-};
-
-
-var _sqlite3_bind_pointer = Module["_sqlite3_bind_pointer"] = function() {
-  return (_sqlite3_bind_pointer = Module["_sqlite3_bind_pointer"] = Module["asm"]["sqlite3_bind_pointer"]).apply(null, arguments);
-};
-
-
-var _sqlite3_result_pointer = Module["_sqlite3_result_pointer"] = function() {
-  return (_sqlite3_result_pointer = Module["_sqlite3_result_pointer"] = Module["asm"]["sqlite3_result_pointer"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_pointer = Module["_sqlite3_value_pointer"] = function() {
-  return (_sqlite3_value_pointer = Module["_sqlite3_value_pointer"] = Module["asm"]["sqlite3_value_pointer"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vtab_nochange = Module["_sqlite3_vtab_nochange"] = function() {
-  return (_sqlite3_vtab_nochange = Module["_sqlite3_vtab_nochange"] = Module["asm"]["sqlite3_vtab_nochange"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_nochange = Module["_sqlite3_value_nochange"] = function() {
-  return (_sqlite3_value_nochange = Module["_sqlite3_value_nochange"] = Module["asm"]["sqlite3_value_nochange"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vtab_collation = Module["_sqlite3_vtab_collation"] = function() {
-  return (_sqlite3_vtab_collation = Module["_sqlite3_vtab_collation"] = Module["asm"]["sqlite3_vtab_collation"]).apply(null, arguments);
-};
-
-
-var _sqlite3_keyword_count = Module["_sqlite3_keyword_count"] = function() {
-  return (_sqlite3_keyword_count = Module["_sqlite3_keyword_count"] = Module["asm"]["sqlite3_keyword_count"]).apply(null, arguments);
-};
-
-
-var _sqlite3_keyword_name = Module["_sqlite3_keyword_name"] = function() {
-  return (_sqlite3_keyword_name = Module["_sqlite3_keyword_name"] = Module["asm"]["sqlite3_keyword_name"]).apply(null, arguments);
-};
-
-
-var _sqlite3_keyword_check = Module["_sqlite3_keyword_check"] = function() {
-  return (_sqlite3_keyword_check = Module["_sqlite3_keyword_check"] = Module["asm"]["sqlite3_keyword_check"]).apply(null, arguments);
-};
-
-
-var _sqlite3_create_window_function = Module["_sqlite3_create_window_function"] = function() {
-  return (_sqlite3_create_window_function = Module["_sqlite3_create_window_function"] = Module["asm"]["sqlite3_create_window_function"]).apply(null, arguments);
-};
-
-
-var _sqlite3_stmt_isexplain = Module["_sqlite3_stmt_isexplain"] = function() {
-  return (_sqlite3_stmt_isexplain = Module["_sqlite3_stmt_isexplain"] = Module["asm"]["sqlite3_stmt_isexplain"]).apply(null, arguments);
-};
-
-
-var _sqlite3_value_frombind = Module["_sqlite3_value_frombind"] = function() {
-  return (_sqlite3_value_frombind = Module["_sqlite3_value_frombind"] = Module["asm"]["sqlite3_value_frombind"]).apply(null, arguments);
-};
-
-
-var _sqlite3_drop_modules = Module["_sqlite3_drop_modules"] = function() {
-  return (_sqlite3_drop_modules = Module["_sqlite3_drop_modules"] = Module["asm"]["sqlite3_drop_modules"]).apply(null, arguments);
-};
-
-
-var _sqlite3_uri_key = Module["_sqlite3_uri_key"] = function() {
-  return (_sqlite3_uri_key = Module["_sqlite3_uri_key"] = Module["asm"]["sqlite3_uri_key"]).apply(null, arguments);
-};
-
-
-var _sqlite3_txn_state = Module["_sqlite3_txn_state"] = function() {
-  return (_sqlite3_txn_state = Module["_sqlite3_txn_state"] = Module["asm"]["sqlite3_txn_state"]).apply(null, arguments);
-};
-
-
-var _sqlite3_changes64 = Module["_sqlite3_changes64"] = function() {
-  return (_sqlite3_changes64 = Module["_sqlite3_changes64"] = Module["asm"]["sqlite3_changes64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_total_changes64 = Module["_sqlite3_total_changes64"] = function() {
-  return (_sqlite3_total_changes64 = Module["_sqlite3_total_changes64"] = Module["asm"]["sqlite3_total_changes64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_error_offset = Module["_sqlite3_error_offset"] = function() {
-  return (_sqlite3_error_offset = Module["_sqlite3_error_offset"] = Module["asm"]["sqlite3_error_offset"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vtab_rhs_value = Module["_sqlite3_vtab_rhs_value"] = function() {
-  return (_sqlite3_vtab_rhs_value = Module["_sqlite3_vtab_rhs_value"] = Module["asm"]["sqlite3_vtab_rhs_value"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vtab_distinct = Module["_sqlite3_vtab_distinct"] = function() {
-  return (_sqlite3_vtab_distinct = Module["_sqlite3_vtab_distinct"] = Module["asm"]["sqlite3_vtab_distinct"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vtab_in = Module["_sqlite3_vtab_in"] = function() {
-  return (_sqlite3_vtab_in = Module["_sqlite3_vtab_in"] = Module["asm"]["sqlite3_vtab_in"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vtab_in_first = Module["_sqlite3_vtab_in_first"] = function() {
-  return (_sqlite3_vtab_in_first = Module["_sqlite3_vtab_in_first"] = Module["asm"]["sqlite3_vtab_in_first"]).apply(null, arguments);
-};
-
-
-var _sqlite3_vtab_in_next = Module["_sqlite3_vtab_in_next"] = function() {
-  return (_sqlite3_vtab_in_next = Module["_sqlite3_vtab_in_next"] = Module["asm"]["sqlite3_vtab_in_next"]).apply(null, arguments);
-};
-
-
-var _sqlite3_deserialize = Module["_sqlite3_deserialize"] = function() {
-  return (_sqlite3_deserialize = Module["_sqlite3_deserialize"] = Module["asm"]["sqlite3_deserialize"]).apply(null, arguments);
-};
-
-
-var _sqlite3_db_name = Module["_sqlite3_db_name"] = function() {
-  return (_sqlite3_db_name = Module["_sqlite3_db_name"] = Module["asm"]["sqlite3_db_name"]).apply(null, arguments);
-};
-
-
-var _sqlite3_is_interrupted = Module["_sqlite3_is_interrupted"] = function() {
-  return (_sqlite3_is_interrupted = Module["_sqlite3_is_interrupted"] = Module["asm"]["sqlite3_is_interrupted"]).apply(null, arguments);
-};
-
-
-var _sqlite3_stmt_explain = Module["_sqlite3_stmt_explain"] = function() {
-  return (_sqlite3_stmt_explain = Module["_sqlite3_stmt_explain"] = Module["asm"]["sqlite3_stmt_explain"]).apply(null, arguments);
-};
-
-
-var _sqlite3_set_errmsg = Module["_sqlite3_set_errmsg"] = function() {
-  return (_sqlite3_set_errmsg = Module["_sqlite3_set_errmsg"] = Module["asm"]["sqlite3_set_errmsg"]).apply(null, arguments);
-};
-
-
-var _sqlite3_db_status64 = Module["_sqlite3_db_status64"] = function() {
-  return (_sqlite3_db_status64 = Module["_sqlite3_db_status64"] = Module["asm"]["sqlite3_db_status64"]).apply(null, arguments);
-};
-
-
-var _sqlite3_preupdate_hook = Module["_sqlite3_preupdate_hook"] = function() {
-  return (_sqlite3_preupdate_hook = Module["_sqlite3_preupdate_hook"] = Module["asm"]["sqlite3_preupdate_hook"]).apply(null, arguments);
-};
-
-
-var _malloc = Module["_malloc"] = function() {
-  return (_malloc = Module["_malloc"] = Module["asm"]["malloc"]).apply(null, arguments);
-};
-
-
-var _free = Module["_free"] = function() {
-  return (_free = Module["_free"] = Module["asm"]["free"]).apply(null, arguments);
-};
-
-
-var _realloc = Module["_realloc"] = function() {
-  return (_realloc = Module["_realloc"] = Module["asm"]["realloc"]).apply(null, arguments);
-};
-
-
-var ___errno_location = Module["___errno_location"] = function() {
-  return (___errno_location = Module["___errno_location"] = Module["asm"]["__errno_location"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_diff = Module["_sqlite3session_diff"] = function() {
-  return (_sqlite3session_diff = Module["_sqlite3session_diff"] = Module["asm"]["sqlite3session_diff"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_attach = Module["_sqlite3session_attach"] = function() {
-  return (_sqlite3session_attach = Module["_sqlite3session_attach"] = Module["asm"]["sqlite3session_attach"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_create = Module["_sqlite3session_create"] = function() {
-  return (_sqlite3session_create = Module["_sqlite3session_create"] = Module["asm"]["sqlite3session_create"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_delete = Module["_sqlite3session_delete"] = function() {
-  return (_sqlite3session_delete = Module["_sqlite3session_delete"] = Module["asm"]["sqlite3session_delete"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_table_filter = Module["_sqlite3session_table_filter"] = function() {
-  return (_sqlite3session_table_filter = Module["_sqlite3session_table_filter"] = Module["asm"]["sqlite3session_table_filter"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_changeset = Module["_sqlite3session_changeset"] = function() {
-  return (_sqlite3session_changeset = Module["_sqlite3session_changeset"] = Module["asm"]["sqlite3session_changeset"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_changeset_strm = Module["_sqlite3session_changeset_strm"] = function() {
-  return (_sqlite3session_changeset_strm = Module["_sqlite3session_changeset_strm"] = Module["asm"]["sqlite3session_changeset_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_patchset_strm = Module["_sqlite3session_patchset_strm"] = function() {
-  return (_sqlite3session_patchset_strm = Module["_sqlite3session_patchset_strm"] = Module["asm"]["sqlite3session_patchset_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_patchset = Module["_sqlite3session_patchset"] = function() {
-  return (_sqlite3session_patchset = Module["_sqlite3session_patchset"] = Module["asm"]["sqlite3session_patchset"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_enable = Module["_sqlite3session_enable"] = function() {
-  return (_sqlite3session_enable = Module["_sqlite3session_enable"] = Module["asm"]["sqlite3session_enable"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_indirect = Module["_sqlite3session_indirect"] = function() {
-  return (_sqlite3session_indirect = Module["_sqlite3session_indirect"] = Module["asm"]["sqlite3session_indirect"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_isempty = Module["_sqlite3session_isempty"] = function() {
-  return (_sqlite3session_isempty = Module["_sqlite3session_isempty"] = Module["asm"]["sqlite3session_isempty"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_memory_used = Module["_sqlite3session_memory_used"] = function() {
-  return (_sqlite3session_memory_used = Module["_sqlite3session_memory_used"] = Module["asm"]["sqlite3session_memory_used"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_object_config = Module["_sqlite3session_object_config"] = function() {
-  return (_sqlite3session_object_config = Module["_sqlite3session_object_config"] = Module["asm"]["sqlite3session_object_config"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_changeset_size = Module["_sqlite3session_changeset_size"] = function() {
-  return (_sqlite3session_changeset_size = Module["_sqlite3session_changeset_size"] = Module["asm"]["sqlite3session_changeset_size"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_start = Module["_sqlite3changeset_start"] = function() {
-  return (_sqlite3changeset_start = Module["_sqlite3changeset_start"] = Module["asm"]["sqlite3changeset_start"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_start_v2 = Module["_sqlite3changeset_start_v2"] = function() {
-  return (_sqlite3changeset_start_v2 = Module["_sqlite3changeset_start_v2"] = Module["asm"]["sqlite3changeset_start_v2"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_start_strm = Module["_sqlite3changeset_start_strm"] = function() {
-  return (_sqlite3changeset_start_strm = Module["_sqlite3changeset_start_strm"] = Module["asm"]["sqlite3changeset_start_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_start_v2_strm = Module["_sqlite3changeset_start_v2_strm"] = function() {
-  return (_sqlite3changeset_start_v2_strm = Module["_sqlite3changeset_start_v2_strm"] = Module["asm"]["sqlite3changeset_start_v2_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_next = Module["_sqlite3changeset_next"] = function() {
-  return (_sqlite3changeset_next = Module["_sqlite3changeset_next"] = Module["asm"]["sqlite3changeset_next"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_op = Module["_sqlite3changeset_op"] = function() {
-  return (_sqlite3changeset_op = Module["_sqlite3changeset_op"] = Module["asm"]["sqlite3changeset_op"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_pk = Module["_sqlite3changeset_pk"] = function() {
-  return (_sqlite3changeset_pk = Module["_sqlite3changeset_pk"] = Module["asm"]["sqlite3changeset_pk"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_old = Module["_sqlite3changeset_old"] = function() {
-  return (_sqlite3changeset_old = Module["_sqlite3changeset_old"] = Module["asm"]["sqlite3changeset_old"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_new = Module["_sqlite3changeset_new"] = function() {
-  return (_sqlite3changeset_new = Module["_sqlite3changeset_new"] = Module["asm"]["sqlite3changeset_new"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_conflict = Module["_sqlite3changeset_conflict"] = function() {
-  return (_sqlite3changeset_conflict = Module["_sqlite3changeset_conflict"] = Module["asm"]["sqlite3changeset_conflict"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_fk_conflicts = Module["_sqlite3changeset_fk_conflicts"] = function() {
-  return (_sqlite3changeset_fk_conflicts = Module["_sqlite3changeset_fk_conflicts"] = Module["asm"]["sqlite3changeset_fk_conflicts"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_finalize = Module["_sqlite3changeset_finalize"] = function() {
-  return (_sqlite3changeset_finalize = Module["_sqlite3changeset_finalize"] = Module["asm"]["sqlite3changeset_finalize"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_invert = Module["_sqlite3changeset_invert"] = function() {
-  return (_sqlite3changeset_invert = Module["_sqlite3changeset_invert"] = Module["asm"]["sqlite3changeset_invert"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_invert_strm = Module["_sqlite3changeset_invert_strm"] = function() {
-  return (_sqlite3changeset_invert_strm = Module["_sqlite3changeset_invert_strm"] = Module["asm"]["sqlite3changeset_invert_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_apply_v2 = Module["_sqlite3changeset_apply_v2"] = function() {
-  return (_sqlite3changeset_apply_v2 = Module["_sqlite3changeset_apply_v2"] = Module["asm"]["sqlite3changeset_apply_v2"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_apply_v3 = Module["_sqlite3changeset_apply_v3"] = function() {
-  return (_sqlite3changeset_apply_v3 = Module["_sqlite3changeset_apply_v3"] = Module["asm"]["sqlite3changeset_apply_v3"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_apply = Module["_sqlite3changeset_apply"] = function() {
-  return (_sqlite3changeset_apply = Module["_sqlite3changeset_apply"] = Module["asm"]["sqlite3changeset_apply"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_apply_v3_strm = Module["_sqlite3changeset_apply_v3_strm"] = function() {
-  return (_sqlite3changeset_apply_v3_strm = Module["_sqlite3changeset_apply_v3_strm"] = Module["asm"]["sqlite3changeset_apply_v3_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_apply_v2_strm = Module["_sqlite3changeset_apply_v2_strm"] = function() {
-  return (_sqlite3changeset_apply_v2_strm = Module["_sqlite3changeset_apply_v2_strm"] = Module["asm"]["sqlite3changeset_apply_v2_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_apply_strm = Module["_sqlite3changeset_apply_strm"] = function() {
-  return (_sqlite3changeset_apply_strm = Module["_sqlite3changeset_apply_strm"] = Module["asm"]["sqlite3changeset_apply_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3changegroup_new = Module["_sqlite3changegroup_new"] = function() {
-  return (_sqlite3changegroup_new = Module["_sqlite3changegroup_new"] = Module["asm"]["sqlite3changegroup_new"]).apply(null, arguments);
-};
-
-
-var _sqlite3changegroup_add = Module["_sqlite3changegroup_add"] = function() {
-  return (_sqlite3changegroup_add = Module["_sqlite3changegroup_add"] = Module["asm"]["sqlite3changegroup_add"]).apply(null, arguments);
-};
-
-
-var _sqlite3changegroup_output = Module["_sqlite3changegroup_output"] = function() {
-  return (_sqlite3changegroup_output = Module["_sqlite3changegroup_output"] = Module["asm"]["sqlite3changegroup_output"]).apply(null, arguments);
-};
-
-
-var _sqlite3changegroup_add_strm = Module["_sqlite3changegroup_add_strm"] = function() {
-  return (_sqlite3changegroup_add_strm = Module["_sqlite3changegroup_add_strm"] = Module["asm"]["sqlite3changegroup_add_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3changegroup_output_strm = Module["_sqlite3changegroup_output_strm"] = function() {
-  return (_sqlite3changegroup_output_strm = Module["_sqlite3changegroup_output_strm"] = Module["asm"]["sqlite3changegroup_output_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3changegroup_delete = Module["_sqlite3changegroup_delete"] = function() {
-  return (_sqlite3changegroup_delete = Module["_sqlite3changegroup_delete"] = Module["asm"]["sqlite3changegroup_delete"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_concat = Module["_sqlite3changeset_concat"] = function() {
-  return (_sqlite3changeset_concat = Module["_sqlite3changeset_concat"] = Module["asm"]["sqlite3changeset_concat"]).apply(null, arguments);
-};
-
-
-var _sqlite3changeset_concat_strm = Module["_sqlite3changeset_concat_strm"] = function() {
-  return (_sqlite3changeset_concat_strm = Module["_sqlite3changeset_concat_strm"] = Module["asm"]["sqlite3changeset_concat_strm"]).apply(null, arguments);
-};
-
-
-var _sqlite3session_config = Module["_sqlite3session_config"] = function() {
-  return (_sqlite3session_config = Module["_sqlite3session_config"] = Module["asm"]["sqlite3session_config"]).apply(null, arguments);
-};
-
-
-var _sqlite3_preupdate_old = Module["_sqlite3_preupdate_old"] = function() {
-  return (_sqlite3_preupdate_old = Module["_sqlite3_preupdate_old"] = Module["asm"]["sqlite3_preupdate_old"]).apply(null, arguments);
-};
-
-
-var _sqlite3_preupdate_count = Module["_sqlite3_preupdate_count"] = function() {
-  return (_sqlite3_preupdate_count = Module["_sqlite3_preupdate_count"] = Module["asm"]["sqlite3_preupdate_count"]).apply(null, arguments);
-};
-
-
-var _sqlite3_preupdate_depth = Module["_sqlite3_preupdate_depth"] = function() {
-  return (_sqlite3_preupdate_depth = Module["_sqlite3_preupdate_depth"] = Module["asm"]["sqlite3_preupdate_depth"]).apply(null, arguments);
-};
-
-
-var _sqlite3_preupdate_blobwrite = Module["_sqlite3_preupdate_blobwrite"] = function() {
-  return (_sqlite3_preupdate_blobwrite = Module["_sqlite3_preupdate_blobwrite"] = Module["asm"]["sqlite3_preupdate_blobwrite"]).apply(null, arguments);
-};
-
-
-var _sqlite3_preupdate_new = Module["_sqlite3_preupdate_new"] = function() {
-  return (_sqlite3_preupdate_new = Module["_sqlite3_preupdate_new"] = Module["asm"]["sqlite3_preupdate_new"]).apply(null, arguments);
-};
-
-
-var _htons = Module["_htons"] = function() {
-  return (_htons = Module["_htons"] = Module["asm"]["htons"]).apply(null, arguments);
-};
-
-
-var ___dl_seterr = Module["___dl_seterr"] = function() {
-  return (___dl_seterr = Module["___dl_seterr"] = Module["asm"]["__dl_seterr"]).apply(null, arguments);
-};
-
-
-var _emscripten_main_thread_process_queued_calls = Module["_emscripten_main_thread_process_queued_calls"] = function() {
-  return (_emscripten_main_thread_process_queued_calls = Module["_emscripten_main_thread_process_queued_calls"] = Module["asm"]["emscripten_main_thread_process_queued_calls"]).apply(null, arguments);
-};
-
-
-var _emscripten_builtin_memalign = Module["_emscripten_builtin_memalign"] = function() {
-  return (_emscripten_builtin_memalign = Module["_emscripten_builtin_memalign"] = Module["asm"]["emscripten_builtin_memalign"]).apply(null, arguments);
-};
-
-
-var _ntohs = Module["_ntohs"] = function() {
-  return (_ntohs = Module["_ntohs"] = Module["asm"]["ntohs"]).apply(null, arguments);
-};
-
-
-var stackSave = Module["stackSave"] = function() {
-  return (stackSave = Module["stackSave"] = Module["asm"]["stackSave"]).apply(null, arguments);
-};
-
-
-var stackRestore = Module["stackRestore"] = function() {
-  return (stackRestore = Module["stackRestore"] = Module["asm"]["stackRestore"]).apply(null, arguments);
-};
-
-
-var stackAlloc = Module["stackAlloc"] = function() {
-  return (stackAlloc = Module["stackAlloc"] = Module["asm"]["stackAlloc"]).apply(null, arguments);
-};
-
-
-
-
-
-
-
+var wasmImports = {
+  
+  __syscall_chmod: ___syscall_chmod,
+  
+  __syscall_connect: ___syscall_connect,
+  
+  __syscall_faccessat: ___syscall_faccessat,
+  
+  __syscall_fchmod: ___syscall_fchmod,
+  
+  __syscall_fchown32: ___syscall_fchown32,
+  
+  __syscall_fcntl64: ___syscall_fcntl64,
+  
+  __syscall_fdatasync: ___syscall_fdatasync,
+  
+  __syscall_fstat64: ___syscall_fstat64,
+  
+  __syscall_ftruncate64: ___syscall_ftruncate64,
+  
+  __syscall_getcwd: ___syscall_getcwd,
+  
+  __syscall_ioctl: ___syscall_ioctl,
+  
+  __syscall_lstat64: ___syscall_lstat64,
+  
+  __syscall_mkdirat: ___syscall_mkdirat,
+  
+  __syscall_newfstatat: ___syscall_newfstatat,
+  
+  __syscall_openat: ___syscall_openat,
+  
+  __syscall_readlinkat: ___syscall_readlinkat,
+  
+  __syscall_renameat: ___syscall_renameat,
+  
+  __syscall_rmdir: ___syscall_rmdir,
+  
+  __syscall_socket: ___syscall_socket,
+  
+  __syscall_stat64: ___syscall_stat64,
+  
+  __syscall_unlinkat: ___syscall_unlinkat,
+  
+  __syscall_utimensat: ___syscall_utimensat,
+  
+  _emscripten_lookup_name: __emscripten_lookup_name,
+  
+  _gmtime_js: __gmtime_js,
+  
+  _localtime_js: __localtime_js,
+  
+  _mmap_js: __mmap_js,
+  
+  _munmap_js: __munmap_js,
+  
+  _timegm_js: __timegm_js,
+  
+  _tzset_js: __tzset_js,
+  
+  clock_time_get: _clock_time_get,
+  
+  emscripten_date_now: _emscripten_date_now,
+  
+  emscripten_get_heap_max: _emscripten_get_heap_max,
+  
+  emscripten_get_now: _emscripten_get_now,
+  
+  emscripten_resize_heap: _emscripten_resize_heap,
+  
+  environ_get: _environ_get,
+  
+  environ_sizes_get: _environ_sizes_get,
+  
+  fd_close: _fd_close,
+  
+  fd_fdstat_get: _fd_fdstat_get,
+  
+  fd_pread: _fd_pread,
+  
+  fd_pwrite: _fd_pwrite,
+  
+  fd_read: _fd_read,
+  
+  fd_seek: _fd_seek,
+  
+  fd_sync: _fd_sync,
+  
+  fd_write: _fd_write,
+  
+  memory: wasmMemory,
+  
+  strptime: _strptime
+};
+var wasmExports;
+createWasm();
+var ___wasm_call_ctors = () => (___wasm_call_ctors = wasmExports['__wasm_call_ctors'])();
+var _sqlite3__wasm_pstack_ptr = Module['_sqlite3__wasm_pstack_ptr'] = () => (_sqlite3__wasm_pstack_ptr = Module['_sqlite3__wasm_pstack_ptr'] = wasmExports['sqlite3__wasm_pstack_ptr'])();
+var _sqlite3__wasm_pstack_restore = Module['_sqlite3__wasm_pstack_restore'] = (a0) => (_sqlite3__wasm_pstack_restore = Module['_sqlite3__wasm_pstack_restore'] = wasmExports['sqlite3__wasm_pstack_restore'])(a0);
+var _sqlite3__wasm_pstack_alloc = Module['_sqlite3__wasm_pstack_alloc'] = (a0) => (_sqlite3__wasm_pstack_alloc = Module['_sqlite3__wasm_pstack_alloc'] = wasmExports['sqlite3__wasm_pstack_alloc'])(a0);
+var _sqlite3__wasm_pstack_remaining = Module['_sqlite3__wasm_pstack_remaining'] = () => (_sqlite3__wasm_pstack_remaining = Module['_sqlite3__wasm_pstack_remaining'] = wasmExports['sqlite3__wasm_pstack_remaining'])();
+var _sqlite3__wasm_pstack_quota = Module['_sqlite3__wasm_pstack_quota'] = () => (_sqlite3__wasm_pstack_quota = Module['_sqlite3__wasm_pstack_quota'] = wasmExports['sqlite3__wasm_pstack_quota'])();
+var _sqlite3__wasm_test_struct = Module['_sqlite3__wasm_test_struct'] = (a0) => (_sqlite3__wasm_test_struct = Module['_sqlite3__wasm_test_struct'] = wasmExports['sqlite3__wasm_test_struct'])(a0);
+var _sqlite3__wasm_enum_json = Module['_sqlite3__wasm_enum_json'] = () => (_sqlite3__wasm_enum_json = Module['_sqlite3__wasm_enum_json'] = wasmExports['sqlite3__wasm_enum_json'])();
+var _sqlite3_free = Module['_sqlite3_free'] = (a0) => (_sqlite3_free = Module['_sqlite3_free'] = wasmExports['sqlite3_free'])(a0);
+var _sqlite3__wasm_vfs_unlink = Module['_sqlite3__wasm_vfs_unlink'] = (a0, a1) => (_sqlite3__wasm_vfs_unlink = Module['_sqlite3__wasm_vfs_unlink'] = wasmExports['sqlite3__wasm_vfs_unlink'])(a0, a1);
+var _sqlite3_vfs_find = Module['_sqlite3_vfs_find'] = (a0) => (_sqlite3_vfs_find = Module['_sqlite3_vfs_find'] = wasmExports['sqlite3_vfs_find'])(a0);
+var _sqlite3__wasm_db_vfs = Module['_sqlite3__wasm_db_vfs'] = (a0, a1) => (_sqlite3__wasm_db_vfs = Module['_sqlite3__wasm_db_vfs'] = wasmExports['sqlite3__wasm_db_vfs'])(a0, a1);
+var _sqlite3_file_control = Module['_sqlite3_file_control'] = (a0, a1, a2, a3) => (_sqlite3_file_control = Module['_sqlite3_file_control'] = wasmExports['sqlite3_file_control'])(a0, a1, a2, a3);
+var _sqlite3__wasm_db_reset = Module['_sqlite3__wasm_db_reset'] = (a0) => (_sqlite3__wasm_db_reset = Module['_sqlite3__wasm_db_reset'] = wasmExports['sqlite3__wasm_db_reset'])(a0);
+var _sqlite3_table_column_metadata = Module['_sqlite3_table_column_metadata'] = (a0, a1, a2, a3, a4, a5, a6, a7, a8) => (_sqlite3_table_column_metadata = Module['_sqlite3_table_column_metadata'] = wasmExports['sqlite3_table_column_metadata'])(a0, a1, a2, a3, a4, a5, a6, a7, a8);
+var _sqlite3_exec = Module['_sqlite3_exec'] = (a0, a1, a2, a3, a4) => (_sqlite3_exec = Module['_sqlite3_exec'] = wasmExports['sqlite3_exec'])(a0, a1, a2, a3, a4);
+var _sqlite3__wasm_db_export_chunked = Module['_sqlite3__wasm_db_export_chunked'] = (a0, a1) => (_sqlite3__wasm_db_export_chunked = Module['_sqlite3__wasm_db_export_chunked'] = wasmExports['sqlite3__wasm_db_export_chunked'])(a0, a1);
+var _sqlite3__wasm_db_serialize = Module['_sqlite3__wasm_db_serialize'] = (a0, a1, a2, a3, a4) => (_sqlite3__wasm_db_serialize = Module['_sqlite3__wasm_db_serialize'] = wasmExports['sqlite3__wasm_db_serialize'])(a0, a1, a2, a3, a4);
+var _sqlite3_randomness = Module['_sqlite3_randomness'] = (a0, a1) => (_sqlite3_randomness = Module['_sqlite3_randomness'] = wasmExports['sqlite3_randomness'])(a0, a1);
+var _sqlite3_open_v2 = Module['_sqlite3_open_v2'] = (a0, a1, a2, a3) => (_sqlite3_open_v2 = Module['_sqlite3_open_v2'] = wasmExports['sqlite3_open_v2'])(a0, a1, a2, a3);
+var _sqlite3_errcode = Module['_sqlite3_errcode'] = (a0) => (_sqlite3_errcode = Module['_sqlite3_errcode'] = wasmExports['sqlite3_errcode'])(a0);
+var _sqlite3_malloc64 = Module['_sqlite3_malloc64'] = (a0) => (_sqlite3_malloc64 = Module['_sqlite3_malloc64'] = wasmExports['sqlite3_malloc64'])(a0);
+var _sqlite3_serialize = Module['_sqlite3_serialize'] = (a0, a1, a2, a3) => (_sqlite3_serialize = Module['_sqlite3_serialize'] = wasmExports['sqlite3_serialize'])(a0, a1, a2, a3);
+var _sqlite3__wasm_vfs_create_file = Module['_sqlite3__wasm_vfs_create_file'] = (a0, a1, a2, a3) => (_sqlite3__wasm_vfs_create_file = Module['_sqlite3__wasm_vfs_create_file'] = wasmExports['sqlite3__wasm_vfs_create_file'])(a0, a1, a2, a3);
+var _sqlite3__wasm_posix_create_file = Module['_sqlite3__wasm_posix_create_file'] = (a0, a1, a2) => (_sqlite3__wasm_posix_create_file = Module['_sqlite3__wasm_posix_create_file'] = wasmExports['sqlite3__wasm_posix_create_file'])(a0, a1, a2);
+var _sqlite3__wasm_vtab_config = Module['_sqlite3__wasm_vtab_config'] = (a0, a1, a2) => (_sqlite3__wasm_vtab_config = Module['_sqlite3__wasm_vtab_config'] = wasmExports['sqlite3__wasm_vtab_config'])(a0, a1, a2);
+var _sqlite3__wasm_db_config_ip = Module['_sqlite3__wasm_db_config_ip'] = (a0, a1, a2, a3) => (_sqlite3__wasm_db_config_ip = Module['_sqlite3__wasm_db_config_ip'] = wasmExports['sqlite3__wasm_db_config_ip'])(a0, a1, a2, a3);
+var _sqlite3__wasm_db_config_pii = Module['_sqlite3__wasm_db_config_pii'] = (a0, a1, a2, a3, a4) => (_sqlite3__wasm_db_config_pii = Module['_sqlite3__wasm_db_config_pii'] = wasmExports['sqlite3__wasm_db_config_pii'])(a0, a1, a2, a3, a4);
+var _sqlite3__wasm_db_config_s = Module['_sqlite3__wasm_db_config_s'] = (a0, a1, a2) => (_sqlite3__wasm_db_config_s = Module['_sqlite3__wasm_db_config_s'] = wasmExports['sqlite3__wasm_db_config_s'])(a0, a1, a2);
+var _sqlite3__wasm_config_i = Module['_sqlite3__wasm_config_i'] = (a0, a1) => (_sqlite3__wasm_config_i = Module['_sqlite3__wasm_config_i'] = wasmExports['sqlite3__wasm_config_i'])(a0, a1);
+var _sqlite3__wasm_config_ii = Module['_sqlite3__wasm_config_ii'] = (a0, a1, a2) => (_sqlite3__wasm_config_ii = Module['_sqlite3__wasm_config_ii'] = wasmExports['sqlite3__wasm_config_ii'])(a0, a1, a2);
+var _sqlite3__wasm_config_j = Module['_sqlite3__wasm_config_j'] = (a0, a1) => (_sqlite3__wasm_config_j = Module['_sqlite3__wasm_config_j'] = wasmExports['sqlite3__wasm_config_j'])(a0, a1);
+var _sqlite3__wasm_qfmt_token = Module['_sqlite3__wasm_qfmt_token'] = (a0, a1) => (_sqlite3__wasm_qfmt_token = Module['_sqlite3__wasm_qfmt_token'] = wasmExports['sqlite3__wasm_qfmt_token'])(a0, a1);
+var _sqlite3__wasm_init_wasmfs = Module['_sqlite3__wasm_init_wasmfs'] = (a0) => (_sqlite3__wasm_init_wasmfs = Module['_sqlite3__wasm_init_wasmfs'] = wasmExports['sqlite3__wasm_init_wasmfs'])(a0);
+var _sqlite3__wasm_test_intptr = Module['_sqlite3__wasm_test_intptr'] = (a0) => (_sqlite3__wasm_test_intptr = Module['_sqlite3__wasm_test_intptr'] = wasmExports['sqlite3__wasm_test_intptr'])(a0);
+var _sqlite3__wasm_test_voidptr = Module['_sqlite3__wasm_test_voidptr'] = (a0) => (_sqlite3__wasm_test_voidptr = Module['_sqlite3__wasm_test_voidptr'] = wasmExports['sqlite3__wasm_test_voidptr'])(a0);
+var _sqlite3__wasm_test_int64_max = Module['_sqlite3__wasm_test_int64_max'] = () => (_sqlite3__wasm_test_int64_max = Module['_sqlite3__wasm_test_int64_max'] = wasmExports['sqlite3__wasm_test_int64_max'])();
+var _sqlite3__wasm_test_int64_min = Module['_sqlite3__wasm_test_int64_min'] = () => (_sqlite3__wasm_test_int64_min = Module['_sqlite3__wasm_test_int64_min'] = wasmExports['sqlite3__wasm_test_int64_min'])();
+var _sqlite3__wasm_test_int64_times2 = Module['_sqlite3__wasm_test_int64_times2'] = (a0) => (_sqlite3__wasm_test_int64_times2 = Module['_sqlite3__wasm_test_int64_times2'] = wasmExports['sqlite3__wasm_test_int64_times2'])(a0);
+var _sqlite3__wasm_test_int64_minmax = Module['_sqlite3__wasm_test_int64_minmax'] = (a0, a1) => (_sqlite3__wasm_test_int64_minmax = Module['_sqlite3__wasm_test_int64_minmax'] = wasmExports['sqlite3__wasm_test_int64_minmax'])(a0, a1);
+var _sqlite3__wasm_test_int64ptr = Module['_sqlite3__wasm_test_int64ptr'] = (a0) => (_sqlite3__wasm_test_int64ptr = Module['_sqlite3__wasm_test_int64ptr'] = wasmExports['sqlite3__wasm_test_int64ptr'])(a0);
+var _sqlite3__wasm_test_stack_overflow = Module['_sqlite3__wasm_test_stack_overflow'] = (a0) => (_sqlite3__wasm_test_stack_overflow = Module['_sqlite3__wasm_test_stack_overflow'] = wasmExports['sqlite3__wasm_test_stack_overflow'])(a0);
+var _sqlite3__wasm_test_str_hello = Module['_sqlite3__wasm_test_str_hello'] = (a0) => (_sqlite3__wasm_test_str_hello = Module['_sqlite3__wasm_test_str_hello'] = wasmExports['sqlite3__wasm_test_str_hello'])(a0);
+var _sqlite3_malloc = Module['_sqlite3_malloc'] = (a0) => (_sqlite3_malloc = Module['_sqlite3_malloc'] = wasmExports['sqlite3_malloc'])(a0);
+var _sqlite3__wasm_SQLTester_strglob = Module['_sqlite3__wasm_SQLTester_strglob'] = (a0, a1) => (_sqlite3__wasm_SQLTester_strglob = Module['_sqlite3__wasm_SQLTester_strglob'] = wasmExports['sqlite3__wasm_SQLTester_strglob'])(a0, a1);
+var _sqlite3_set_authorizer = Module['_sqlite3_set_authorizer'] = (a0, a1, a2) => (_sqlite3_set_authorizer = Module['_sqlite3_set_authorizer'] = wasmExports['sqlite3_set_authorizer'])(a0, a1, a2);
+var _sqlite3_complete = Module['_sqlite3_complete'] = (a0) => (_sqlite3_complete = Module['_sqlite3_complete'] = wasmExports['sqlite3_complete'])(a0);
+var _sqlite3_strglob = Module['_sqlite3_strglob'] = (a0, a1) => (_sqlite3_strglob = Module['_sqlite3_strglob'] = wasmExports['sqlite3_strglob'])(a0, a1);
+var _sqlite3_strlike = Module['_sqlite3_strlike'] = (a0, a1, a2) => (_sqlite3_strlike = Module['_sqlite3_strlike'] = wasmExports['sqlite3_strlike'])(a0, a1, a2);
+var _sqlite3_prepare_v2 = Module['_sqlite3_prepare_v2'] = (a0, a1, a2, a3, a4) => (_sqlite3_prepare_v2 = Module['_sqlite3_prepare_v2'] = wasmExports['sqlite3_prepare_v2'])(a0, a1, a2, a3, a4);
+var _sqlite3_step = Module['_sqlite3_step'] = (a0) => (_sqlite3_step = Module['_sqlite3_step'] = wasmExports['sqlite3_step'])(a0);
+var _sqlite3_column_count = Module['_sqlite3_column_count'] = (a0) => (_sqlite3_column_count = Module['_sqlite3_column_count'] = wasmExports['sqlite3_column_count'])(a0);
+var _sqlite3_column_name = Module['_sqlite3_column_name'] = (a0, a1) => (_sqlite3_column_name = Module['_sqlite3_column_name'] = wasmExports['sqlite3_column_name'])(a0, a1);
+var _sqlite3_column_text = Module['_sqlite3_column_text'] = (a0, a1) => (_sqlite3_column_text = Module['_sqlite3_column_text'] = wasmExports['sqlite3_column_text'])(a0, a1);
+var _sqlite3_column_type = Module['_sqlite3_column_type'] = (a0, a1) => (_sqlite3_column_type = Module['_sqlite3_column_type'] = wasmExports['sqlite3_column_type'])(a0, a1);
+var _sqlite3_errmsg = Module['_sqlite3_errmsg'] = (a0) => (_sqlite3_errmsg = Module['_sqlite3_errmsg'] = wasmExports['sqlite3_errmsg'])(a0);
+var _sqlite3_auto_extension = Module['_sqlite3_auto_extension'] = (a0) => (_sqlite3_auto_extension = Module['_sqlite3_auto_extension'] = wasmExports['sqlite3_auto_extension'])(a0);
+var _sqlite3_cancel_auto_extension = Module['_sqlite3_cancel_auto_extension'] = (a0) => (_sqlite3_cancel_auto_extension = Module['_sqlite3_cancel_auto_extension'] = wasmExports['sqlite3_cancel_auto_extension'])(a0);
+var _sqlite3_reset_auto_extension = Module['_sqlite3_reset_auto_extension'] = () => (_sqlite3_reset_auto_extension = Module['_sqlite3_reset_auto_extension'] = wasmExports['sqlite3_reset_auto_extension'])();
+var _sqlite3_libversion = Module['_sqlite3_libversion'] = () => (_sqlite3_libversion = Module['_sqlite3_libversion'] = wasmExports['sqlite3_libversion'])();
+var _sqlite3_sourceid = Module['_sqlite3_sourceid'] = () => (_sqlite3_sourceid = Module['_sqlite3_sourceid'] = wasmExports['sqlite3_sourceid'])();
+var _sqlite3_libversion_number = Module['_sqlite3_libversion_number'] = () => (_sqlite3_libversion_number = Module['_sqlite3_libversion_number'] = wasmExports['sqlite3_libversion_number'])();
+var _sqlite3_initialize = Module['_sqlite3_initialize'] = () => (_sqlite3_initialize = Module['_sqlite3_initialize'] = wasmExports['sqlite3_initialize'])();
+var _sqlite3_shutdown = Module['_sqlite3_shutdown'] = () => (_sqlite3_shutdown = Module['_sqlite3_shutdown'] = wasmExports['sqlite3_shutdown'])();
+var _sqlite3_value_type = Module['_sqlite3_value_type'] = (a0) => (_sqlite3_value_type = Module['_sqlite3_value_type'] = wasmExports['sqlite3_value_type'])(a0);
+var _sqlite3_value_double = Module['_sqlite3_value_double'] = (a0) => (_sqlite3_value_double = Module['_sqlite3_value_double'] = wasmExports['sqlite3_value_double'])(a0);
+var _sqlite3_value_int64 = Module['_sqlite3_value_int64'] = (a0) => (_sqlite3_value_int64 = Module['_sqlite3_value_int64'] = wasmExports['sqlite3_value_int64'])(a0);
+var _sqlite3_value_blob = Module['_sqlite3_value_blob'] = (a0) => (_sqlite3_value_blob = Module['_sqlite3_value_blob'] = wasmExports['sqlite3_value_blob'])(a0);
+var _sqlite3_value_bytes = Module['_sqlite3_value_bytes'] = (a0) => (_sqlite3_value_bytes = Module['_sqlite3_value_bytes'] = wasmExports['sqlite3_value_bytes'])(a0);
+var _sqlite3_value_text = Module['_sqlite3_value_text'] = (a0) => (_sqlite3_value_text = Module['_sqlite3_value_text'] = wasmExports['sqlite3_value_text'])(a0);
+var _sqlite3_overload_function = Module['_sqlite3_overload_function'] = (a0, a1, a2) => (_sqlite3_overload_function = Module['_sqlite3_overload_function'] = wasmExports['sqlite3_overload_function'])(a0, a1, a2);
+var _sqlite3_strnicmp = Module['_sqlite3_strnicmp'] = (a0, a1, a2) => (_sqlite3_strnicmp = Module['_sqlite3_strnicmp'] = wasmExports['sqlite3_strnicmp'])(a0, a1, a2);
+var _sqlite3_context_db_handle = Module['_sqlite3_context_db_handle'] = (a0) => (_sqlite3_context_db_handle = Module['_sqlite3_context_db_handle'] = wasmExports['sqlite3_context_db_handle'])(a0);
+var _sqlite3_value_int = Module['_sqlite3_value_int'] = (a0) => (_sqlite3_value_int = Module['_sqlite3_value_int'] = wasmExports['sqlite3_value_int'])(a0);
+var _sqlite3_stricmp = Module['_sqlite3_stricmp'] = (a0, a1) => (_sqlite3_stricmp = Module['_sqlite3_stricmp'] = wasmExports['sqlite3_stricmp'])(a0, a1);
+var _sqlite3_result_error_code = Module['_sqlite3_result_error_code'] = (a0, a1) => (_sqlite3_result_error_code = Module['_sqlite3_result_error_code'] = wasmExports['sqlite3_result_error_code'])(a0, a1);
+var _sqlite3_result_int = Module['_sqlite3_result_int'] = (a0, a1) => (_sqlite3_result_int = Module['_sqlite3_result_int'] = wasmExports['sqlite3_result_int'])(a0, a1);
+var _sqlite3_result_text = Module['_sqlite3_result_text'] = (a0, a1, a2, a3) => (_sqlite3_result_text = Module['_sqlite3_result_text'] = wasmExports['sqlite3_result_text'])(a0, a1, a2, a3);
+var _sqlite3_result_error = Module['_sqlite3_result_error'] = (a0, a1, a2) => (_sqlite3_result_error = Module['_sqlite3_result_error'] = wasmExports['sqlite3_result_error'])(a0, a1, a2);
+var _sqlite3_result_error_nomem = Module['_sqlite3_result_error_nomem'] = (a0) => (_sqlite3_result_error_nomem = Module['_sqlite3_result_error_nomem'] = wasmExports['sqlite3_result_error_nomem'])(a0);
+var _sqlite3_result_subtype = Module['_sqlite3_result_subtype'] = (a0, a1) => (_sqlite3_result_subtype = Module['_sqlite3_result_subtype'] = wasmExports['sqlite3_result_subtype'])(a0, a1);
+var _sqlite3_user_data = Module['_sqlite3_user_data'] = (a0) => (_sqlite3_user_data = Module['_sqlite3_user_data'] = wasmExports['sqlite3_user_data'])(a0);
+var _sqlite3_result_int64 = Module['_sqlite3_result_int64'] = (a0, a1) => (_sqlite3_result_int64 = Module['_sqlite3_result_int64'] = wasmExports['sqlite3_result_int64'])(a0, a1);
+var _sqlite3_aggregate_context = Module['_sqlite3_aggregate_context'] = (a0, a1) => (_sqlite3_aggregate_context = Module['_sqlite3_aggregate_context'] = wasmExports['sqlite3_aggregate_context'])(a0, a1);
+var _sqlite3_result_blob = Module['_sqlite3_result_blob'] = (a0, a1, a2, a3) => (_sqlite3_result_blob = Module['_sqlite3_result_blob'] = wasmExports['sqlite3_result_blob'])(a0, a1, a2, a3);
+var _sqlite3_get_auxdata = Module['_sqlite3_get_auxdata'] = (a0, a1) => (_sqlite3_get_auxdata = Module['_sqlite3_get_auxdata'] = wasmExports['sqlite3_get_auxdata'])(a0, a1);
+var _sqlite3_set_auxdata = Module['_sqlite3_set_auxdata'] = (a0, a1, a2, a3) => (_sqlite3_set_auxdata = Module['_sqlite3_set_auxdata'] = wasmExports['sqlite3_set_auxdata'])(a0, a1, a2, a3);
+var _sqlite3_value_subtype = Module['_sqlite3_value_subtype'] = (a0) => (_sqlite3_value_subtype = Module['_sqlite3_value_subtype'] = wasmExports['sqlite3_value_subtype'])(a0);
+var _sqlite3_result_null = Module['_sqlite3_result_null'] = (a0) => (_sqlite3_result_null = Module['_sqlite3_result_null'] = wasmExports['sqlite3_result_null'])(a0);
+var _sqlite3_result_double = Module['_sqlite3_result_double'] = (a0, a1) => (_sqlite3_result_double = Module['_sqlite3_result_double'] = wasmExports['sqlite3_result_double'])(a0, a1);
+var _sqlite3_declare_vtab = Module['_sqlite3_declare_vtab'] = (a0, a1) => (_sqlite3_declare_vtab = Module['_sqlite3_declare_vtab'] = wasmExports['sqlite3_declare_vtab'])(a0, a1);
+var _sqlite3_realloc64 = Module['_sqlite3_realloc64'] = (a0, a1) => (_sqlite3_realloc64 = Module['_sqlite3_realloc64'] = wasmExports['sqlite3_realloc64'])(a0, a1);
+var _sqlite3_bind_blob = Module['_sqlite3_bind_blob'] = (a0, a1, a2, a3, a4) => (_sqlite3_bind_blob = Module['_sqlite3_bind_blob'] = wasmExports['sqlite3_bind_blob'])(a0, a1, a2, a3, a4);
+var _sqlite3_bind_double = Module['_sqlite3_bind_double'] = (a0, a1, a2) => (_sqlite3_bind_double = Module['_sqlite3_bind_double'] = wasmExports['sqlite3_bind_double'])(a0, a1, a2);
+var _sqlite3_bind_int = Module['_sqlite3_bind_int'] = (a0, a1, a2) => (_sqlite3_bind_int = Module['_sqlite3_bind_int'] = wasmExports['sqlite3_bind_int'])(a0, a1, a2);
+var _sqlite3_bind_int64 = Module['_sqlite3_bind_int64'] = (a0, a1, a2) => (_sqlite3_bind_int64 = Module['_sqlite3_bind_int64'] = wasmExports['sqlite3_bind_int64'])(a0, a1, a2);
+var _sqlite3_bind_null = Module['_sqlite3_bind_null'] = (a0, a1) => (_sqlite3_bind_null = Module['_sqlite3_bind_null'] = wasmExports['sqlite3_bind_null'])(a0, a1);
+var _sqlite3_bind_parameter_count = Module['_sqlite3_bind_parameter_count'] = (a0) => (_sqlite3_bind_parameter_count = Module['_sqlite3_bind_parameter_count'] = wasmExports['sqlite3_bind_parameter_count'])(a0);
+var _sqlite3_bind_parameter_index = Module['_sqlite3_bind_parameter_index'] = (a0, a1) => (_sqlite3_bind_parameter_index = Module['_sqlite3_bind_parameter_index'] = wasmExports['sqlite3_bind_parameter_index'])(a0, a1);
+var _sqlite3_bind_parameter_name = Module['_sqlite3_bind_parameter_name'] = (a0, a1) => (_sqlite3_bind_parameter_name = Module['_sqlite3_bind_parameter_name'] = wasmExports['sqlite3_bind_parameter_name'])(a0, a1);
+var _sqlite3_bind_text = Module['_sqlite3_bind_text'] = (a0, a1, a2, a3, a4) => (_sqlite3_bind_text = Module['_sqlite3_bind_text'] = wasmExports['sqlite3_bind_text'])(a0, a1, a2, a3, a4);
+var _sqlite3_busy_handler = Module['_sqlite3_busy_handler'] = (a0, a1, a2) => (_sqlite3_busy_handler = Module['_sqlite3_busy_handler'] = wasmExports['sqlite3_busy_handler'])(a0, a1, a2);
+var _sqlite3_busy_timeout = Module['_sqlite3_busy_timeout'] = (a0, a1) => (_sqlite3_busy_timeout = Module['_sqlite3_busy_timeout'] = wasmExports['sqlite3_busy_timeout'])(a0, a1);
+var _sqlite3_changes = Module['_sqlite3_changes'] = (a0) => (_sqlite3_changes = Module['_sqlite3_changes'] = wasmExports['sqlite3_changes'])(a0);
+var _sqlite3_collation_needed = Module['_sqlite3_collation_needed'] = (a0, a1, a2) => (_sqlite3_collation_needed = Module['_sqlite3_collation_needed'] = wasmExports['sqlite3_collation_needed'])(a0, a1, a2);
+var _sqlite3_column_blob = Module['_sqlite3_column_blob'] = (a0, a1) => (_sqlite3_column_blob = Module['_sqlite3_column_blob'] = wasmExports['sqlite3_column_blob'])(a0, a1);
+var _sqlite3_column_bytes = Module['_sqlite3_column_bytes'] = (a0, a1) => (_sqlite3_column_bytes = Module['_sqlite3_column_bytes'] = wasmExports['sqlite3_column_bytes'])(a0, a1);
+var _sqlite3_column_database_name = Module['_sqlite3_column_database_name'] = (a0, a1) => (_sqlite3_column_database_name = Module['_sqlite3_column_database_name'] = wasmExports['sqlite3_column_database_name'])(a0, a1);
+var _sqlite3_column_decltype = Module['_sqlite3_column_decltype'] = (a0, a1) => (_sqlite3_column_decltype = Module['_sqlite3_column_decltype'] = wasmExports['sqlite3_column_decltype'])(a0, a1);
+var _sqlite3_column_double = Module['_sqlite3_column_double'] = (a0, a1) => (_sqlite3_column_double = Module['_sqlite3_column_double'] = wasmExports['sqlite3_column_double'])(a0, a1);
+var _sqlite3_column_int = Module['_sqlite3_column_int'] = (a0, a1) => (_sqlite3_column_int = Module['_sqlite3_column_int'] = wasmExports['sqlite3_column_int'])(a0, a1);
+var _sqlite3_column_int64 = Module['_sqlite3_column_int64'] = (a0, a1) => (_sqlite3_column_int64 = Module['_sqlite3_column_int64'] = wasmExports['sqlite3_column_int64'])(a0, a1);
+var _sqlite3_column_origin_name = Module['_sqlite3_column_origin_name'] = (a0, a1) => (_sqlite3_column_origin_name = Module['_sqlite3_column_origin_name'] = wasmExports['sqlite3_column_origin_name'])(a0, a1);
+var _sqlite3_column_table_name = Module['_sqlite3_column_table_name'] = (a0, a1) => (_sqlite3_column_table_name = Module['_sqlite3_column_table_name'] = wasmExports['sqlite3_column_table_name'])(a0, a1);
+var _sqlite3_column_value = Module['_sqlite3_column_value'] = (a0, a1) => (_sqlite3_column_value = Module['_sqlite3_column_value'] = wasmExports['sqlite3_column_value'])(a0, a1);
+var _sqlite3_commit_hook = Module['_sqlite3_commit_hook'] = (a0, a1, a2) => (_sqlite3_commit_hook = Module['_sqlite3_commit_hook'] = wasmExports['sqlite3_commit_hook'])(a0, a1, a2);
+var _sqlite3_create_collation = Module['_sqlite3_create_collation'] = (a0, a1, a2, a3, a4) => (_sqlite3_create_collation = Module['_sqlite3_create_collation'] = wasmExports['sqlite3_create_collation'])(a0, a1, a2, a3, a4);
+var _sqlite3_create_function = Module['_sqlite3_create_function'] = (a0, a1, a2, a3, a4, a5, a6, a7) => (_sqlite3_create_function = Module['_sqlite3_create_function'] = wasmExports['sqlite3_create_function'])(a0, a1, a2, a3, a4, a5, a6, a7);
+var _sqlite3_create_module = Module['_sqlite3_create_module'] = (a0, a1, a2, a3) => (_sqlite3_create_module = Module['_sqlite3_create_module'] = wasmExports['sqlite3_create_module'])(a0, a1, a2, a3);
+var _sqlite3_data_count = Module['_sqlite3_data_count'] = (a0) => (_sqlite3_data_count = Module['_sqlite3_data_count'] = wasmExports['sqlite3_data_count'])(a0);
+var _sqlite3_db_handle = Module['_sqlite3_db_handle'] = (a0) => (_sqlite3_db_handle = Module['_sqlite3_db_handle'] = wasmExports['sqlite3_db_handle'])(a0);
+var _sqlite3_finalize = Module['_sqlite3_finalize'] = (a0) => (_sqlite3_finalize = Module['_sqlite3_finalize'] = wasmExports['sqlite3_finalize'])(a0);
+var _sqlite3_get_autocommit = Module['_sqlite3_get_autocommit'] = (a0) => (_sqlite3_get_autocommit = Module['_sqlite3_get_autocommit'] = wasmExports['sqlite3_get_autocommit'])(a0);
+var _sqlite3_interrupt = Module['_sqlite3_interrupt'] = (a0) => (_sqlite3_interrupt = Module['_sqlite3_interrupt'] = wasmExports['sqlite3_interrupt'])(a0);
+var _sqlite3_last_insert_rowid = Module['_sqlite3_last_insert_rowid'] = (a0) => (_sqlite3_last_insert_rowid = Module['_sqlite3_last_insert_rowid'] = wasmExports['sqlite3_last_insert_rowid'])(a0);
+var _sqlite3_open = Module['_sqlite3_open'] = (a0, a1) => (_sqlite3_open = Module['_sqlite3_open'] = wasmExports['sqlite3_open'])(a0, a1);
+var _sqlite3_progress_handler = Module['_sqlite3_progress_handler'] = (a0, a1, a2, a3) => (_sqlite3_progress_handler = Module['_sqlite3_progress_handler'] = wasmExports['sqlite3_progress_handler'])(a0, a1, a2, a3);
+var _sqlite3_realloc = Module['_sqlite3_realloc'] = (a0, a1) => (_sqlite3_realloc = Module['_sqlite3_realloc'] = wasmExports['sqlite3_realloc'])(a0, a1);
+var _sqlite3_reset = Module['_sqlite3_reset'] = (a0) => (_sqlite3_reset = Module['_sqlite3_reset'] = wasmExports['sqlite3_reset'])(a0);
+var _sqlite3_rollback_hook = Module['_sqlite3_rollback_hook'] = (a0, a1, a2) => (_sqlite3_rollback_hook = Module['_sqlite3_rollback_hook'] = wasmExports['sqlite3_rollback_hook'])(a0, a1, a2);
+var _sqlite3_total_changes = Module['_sqlite3_total_changes'] = (a0) => (_sqlite3_total_changes = Module['_sqlite3_total_changes'] = wasmExports['sqlite3_total_changes'])(a0);
+var _sqlite3_update_hook = Module['_sqlite3_update_hook'] = (a0, a1, a2) => (_sqlite3_update_hook = Module['_sqlite3_update_hook'] = wasmExports['sqlite3_update_hook'])(a0, a1, a2);
+var _sqlite3_value_numeric_type = Module['_sqlite3_value_numeric_type'] = (a0) => (_sqlite3_value_numeric_type = Module['_sqlite3_value_numeric_type'] = wasmExports['sqlite3_value_numeric_type'])(a0);
+var _sqlite3_clear_bindings = Module['_sqlite3_clear_bindings'] = (a0) => (_sqlite3_clear_bindings = Module['_sqlite3_clear_bindings'] = wasmExports['sqlite3_clear_bindings'])(a0);
+var _sqlite3_create_module_v2 = Module['_sqlite3_create_module_v2'] = (a0, a1, a2, a3, a4) => (_sqlite3_create_module_v2 = Module['_sqlite3_create_module_v2'] = wasmExports['sqlite3_create_module_v2'])(a0, a1, a2, a3, a4);
+var _sqlite3_bind_zeroblob = Module['_sqlite3_bind_zeroblob'] = (a0, a1, a2) => (_sqlite3_bind_zeroblob = Module['_sqlite3_bind_zeroblob'] = wasmExports['sqlite3_bind_zeroblob'])(a0, a1, a2);
+var _sqlite3_create_collation_v2 = Module['_sqlite3_create_collation_v2'] = (a0, a1, a2, a3, a4, a5) => (_sqlite3_create_collation_v2 = Module['_sqlite3_create_collation_v2'] = wasmExports['sqlite3_create_collation_v2'])(a0, a1, a2, a3, a4, a5);
+var _sqlite3_result_error_toobig = Module['_sqlite3_result_error_toobig'] = (a0) => (_sqlite3_result_error_toobig = Module['_sqlite3_result_error_toobig'] = wasmExports['sqlite3_result_error_toobig'])(a0);
+var _sqlite3_vfs_register = Module['_sqlite3_vfs_register'] = (a0, a1) => (_sqlite3_vfs_register = Module['_sqlite3_vfs_register'] = wasmExports['sqlite3_vfs_register'])(a0, a1);
+var _sqlite3_vfs_unregister = Module['_sqlite3_vfs_unregister'] = (a0) => (_sqlite3_vfs_unregister = Module['_sqlite3_vfs_unregister'] = wasmExports['sqlite3_vfs_unregister'])(a0);
+var _sqlite3_result_zeroblob = Module['_sqlite3_result_zeroblob'] = (a0, a1) => (_sqlite3_result_zeroblob = Module['_sqlite3_result_zeroblob'] = wasmExports['sqlite3_result_zeroblob'])(a0, a1);
+var _sqlite3_extended_result_codes = Module['_sqlite3_extended_result_codes'] = (a0, a1) => (_sqlite3_extended_result_codes = Module['_sqlite3_extended_result_codes'] = wasmExports['sqlite3_extended_result_codes'])(a0, a1);
+var _sqlite3_limit = Module['_sqlite3_limit'] = (a0, a1, a2) => (_sqlite3_limit = Module['_sqlite3_limit'] = wasmExports['sqlite3_limit'])(a0, a1, a2);
+var _sqlite3_next_stmt = Module['_sqlite3_next_stmt'] = (a0, a1) => (_sqlite3_next_stmt = Module['_sqlite3_next_stmt'] = wasmExports['sqlite3_next_stmt'])(a0, a1);
+var _sqlite3_sql = Module['_sqlite3_sql'] = (a0) => (_sqlite3_sql = Module['_sqlite3_sql'] = wasmExports['sqlite3_sql'])(a0);
+var _sqlite3_status = Module['_sqlite3_status'] = (a0, a1, a2, a3) => (_sqlite3_status = Module['_sqlite3_status'] = wasmExports['sqlite3_status'])(a0, a1, a2, a3);
+var _sqlite3_compileoption_get = Module['_sqlite3_compileoption_get'] = (a0) => (_sqlite3_compileoption_get = Module['_sqlite3_compileoption_get'] = wasmExports['sqlite3_compileoption_get'])(a0);
+var _sqlite3_compileoption_used = Module['_sqlite3_compileoption_used'] = (a0) => (_sqlite3_compileoption_used = Module['_sqlite3_compileoption_used'] = wasmExports['sqlite3_compileoption_used'])(a0);
+var _sqlite3_create_function_v2 = Module['_sqlite3_create_function_v2'] = (a0, a1, a2, a3, a4, a5, a6, a7, a8) => (_sqlite3_create_function_v2 = Module['_sqlite3_create_function_v2'] = wasmExports['sqlite3_create_function_v2'])(a0, a1, a2, a3, a4, a5, a6, a7, a8);
+var _sqlite3_db_status = Module['_sqlite3_db_status'] = (a0, a1, a2, a3, a4) => (_sqlite3_db_status = Module['_sqlite3_db_status'] = wasmExports['sqlite3_db_status'])(a0, a1, a2, a3, a4);
+var _sqlite3_extended_errcode = Module['_sqlite3_extended_errcode'] = (a0) => (_sqlite3_extended_errcode = Module['_sqlite3_extended_errcode'] = wasmExports['sqlite3_extended_errcode'])(a0);
+var _sqlite3_stmt_status = Module['_sqlite3_stmt_status'] = (a0, a1, a2) => (_sqlite3_stmt_status = Module['_sqlite3_stmt_status'] = wasmExports['sqlite3_stmt_status'])(a0, a1, a2);
+var _sqlite3_vtab_on_conflict = Module['_sqlite3_vtab_on_conflict'] = (a0) => (_sqlite3_vtab_on_conflict = Module['_sqlite3_vtab_on_conflict'] = wasmExports['sqlite3_vtab_on_conflict'])(a0);
+var _sqlite3_close_v2 = Module['_sqlite3_close_v2'] = (a0) => (_sqlite3_close_v2 = Module['_sqlite3_close_v2'] = wasmExports['sqlite3_close_v2'])(a0);
+var _sqlite3_db_filename = Module['_sqlite3_db_filename'] = (a0, a1) => (_sqlite3_db_filename = Module['_sqlite3_db_filename'] = wasmExports['sqlite3_db_filename'])(a0, a1);
+var _sqlite3_db_readonly = Module['_sqlite3_db_readonly'] = (a0, a1) => (_sqlite3_db_readonly = Module['_sqlite3_db_readonly'] = wasmExports['sqlite3_db_readonly'])(a0, a1);
+var _sqlite3_errstr = Module['_sqlite3_errstr'] = (a0) => (_sqlite3_errstr = Module['_sqlite3_errstr'] = wasmExports['sqlite3_errstr'])(a0);
+var _sqlite3_stmt_busy = Module['_sqlite3_stmt_busy'] = (a0) => (_sqlite3_stmt_busy = Module['_sqlite3_stmt_busy'] = wasmExports['sqlite3_stmt_busy'])(a0);
+var _sqlite3_stmt_readonly = Module['_sqlite3_stmt_readonly'] = (a0) => (_sqlite3_stmt_readonly = Module['_sqlite3_stmt_readonly'] = wasmExports['sqlite3_stmt_readonly'])(a0);
+var _sqlite3_uri_boolean = Module['_sqlite3_uri_boolean'] = (a0, a1, a2) => (_sqlite3_uri_boolean = Module['_sqlite3_uri_boolean'] = wasmExports['sqlite3_uri_boolean'])(a0, a1, a2);
+var _sqlite3_uri_int64 = Module['_sqlite3_uri_int64'] = (a0, a1, a2) => (_sqlite3_uri_int64 = Module['_sqlite3_uri_int64'] = wasmExports['sqlite3_uri_int64'])(a0, a1, a2);
+var _sqlite3_uri_parameter = Module['_sqlite3_uri_parameter'] = (a0, a1) => (_sqlite3_uri_parameter = Module['_sqlite3_uri_parameter'] = wasmExports['sqlite3_uri_parameter'])(a0, a1);
+var _sqlite3_msize = Module['_sqlite3_msize'] = (a0) => (_sqlite3_msize = Module['_sqlite3_msize'] = wasmExports['sqlite3_msize'])(a0);
+var _sqlite3_value_dup = Module['_sqlite3_value_dup'] = (a0) => (_sqlite3_value_dup = Module['_sqlite3_value_dup'] = wasmExports['sqlite3_value_dup'])(a0);
+var _sqlite3_value_free = Module['_sqlite3_value_free'] = (a0) => (_sqlite3_value_free = Module['_sqlite3_value_free'] = wasmExports['sqlite3_value_free'])(a0);
+var _sqlite3_result_zeroblob64 = Module['_sqlite3_result_zeroblob64'] = (a0, a1) => (_sqlite3_result_zeroblob64 = Module['_sqlite3_result_zeroblob64'] = wasmExports['sqlite3_result_zeroblob64'])(a0, a1);
+var _sqlite3_status64 = Module['_sqlite3_status64'] = (a0, a1, a2, a3) => (_sqlite3_status64 = Module['_sqlite3_status64'] = wasmExports['sqlite3_status64'])(a0, a1, a2, a3);
+var _sqlite3_trace_v2 = Module['_sqlite3_trace_v2'] = (a0, a1, a2, a3) => (_sqlite3_trace_v2 = Module['_sqlite3_trace_v2'] = wasmExports['sqlite3_trace_v2'])(a0, a1, a2, a3);
+var _sqlite3_expanded_sql = Module['_sqlite3_expanded_sql'] = (a0) => (_sqlite3_expanded_sql = Module['_sqlite3_expanded_sql'] = wasmExports['sqlite3_expanded_sql'])(a0);
+var _sqlite3_set_last_insert_rowid = Module['_sqlite3_set_last_insert_rowid'] = (a0, a1) => (_sqlite3_set_last_insert_rowid = Module['_sqlite3_set_last_insert_rowid'] = wasmExports['sqlite3_set_last_insert_rowid'])(a0, a1);
+var _sqlite3_prepare_v3 = Module['_sqlite3_prepare_v3'] = (a0, a1, a2, a3, a4, a5) => (_sqlite3_prepare_v3 = Module['_sqlite3_prepare_v3'] = wasmExports['sqlite3_prepare_v3'])(a0, a1, a2, a3, a4, a5);
+var _sqlite3_bind_pointer = Module['_sqlite3_bind_pointer'] = (a0, a1, a2, a3, a4) => (_sqlite3_bind_pointer = Module['_sqlite3_bind_pointer'] = wasmExports['sqlite3_bind_pointer'])(a0, a1, a2, a3, a4);
+var _sqlite3_result_pointer = Module['_sqlite3_result_pointer'] = (a0, a1, a2, a3) => (_sqlite3_result_pointer = Module['_sqlite3_result_pointer'] = wasmExports['sqlite3_result_pointer'])(a0, a1, a2, a3);
+var _sqlite3_value_pointer = Module['_sqlite3_value_pointer'] = (a0, a1) => (_sqlite3_value_pointer = Module['_sqlite3_value_pointer'] = wasmExports['sqlite3_value_pointer'])(a0, a1);
+var _sqlite3_vtab_nochange = Module['_sqlite3_vtab_nochange'] = (a0) => (_sqlite3_vtab_nochange = Module['_sqlite3_vtab_nochange'] = wasmExports['sqlite3_vtab_nochange'])(a0);
+var _sqlite3_value_nochange = Module['_sqlite3_value_nochange'] = (a0) => (_sqlite3_value_nochange = Module['_sqlite3_value_nochange'] = wasmExports['sqlite3_value_nochange'])(a0);
+var _sqlite3_vtab_collation = Module['_sqlite3_vtab_collation'] = (a0, a1) => (_sqlite3_vtab_collation = Module['_sqlite3_vtab_collation'] = wasmExports['sqlite3_vtab_collation'])(a0, a1);
+var _sqlite3_keyword_count = Module['_sqlite3_keyword_count'] = () => (_sqlite3_keyword_count = Module['_sqlite3_keyword_count'] = wasmExports['sqlite3_keyword_count'])();
+var _sqlite3_keyword_name = Module['_sqlite3_keyword_name'] = (a0, a1, a2) => (_sqlite3_keyword_name = Module['_sqlite3_keyword_name'] = wasmExports['sqlite3_keyword_name'])(a0, a1, a2);
+var _sqlite3_keyword_check = Module['_sqlite3_keyword_check'] = (a0, a1) => (_sqlite3_keyword_check = Module['_sqlite3_keyword_check'] = wasmExports['sqlite3_keyword_check'])(a0, a1);
+var _sqlite3_create_window_function = Module['_sqlite3_create_window_function'] = (a0, a1, a2, a3, a4, a5, a6, a7, a8, a9) => (_sqlite3_create_window_function = Module['_sqlite3_create_window_function'] = wasmExports['sqlite3_create_window_function'])(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9);
+var _sqlite3_stmt_isexplain = Module['_sqlite3_stmt_isexplain'] = (a0) => (_sqlite3_stmt_isexplain = Module['_sqlite3_stmt_isexplain'] = wasmExports['sqlite3_stmt_isexplain'])(a0);
+var _sqlite3_value_frombind = Module['_sqlite3_value_frombind'] = (a0) => (_sqlite3_value_frombind = Module['_sqlite3_value_frombind'] = wasmExports['sqlite3_value_frombind'])(a0);
+var _sqlite3_drop_modules = Module['_sqlite3_drop_modules'] = (a0, a1) => (_sqlite3_drop_modules = Module['_sqlite3_drop_modules'] = wasmExports['sqlite3_drop_modules'])(a0, a1);
+var _sqlite3_uri_key = Module['_sqlite3_uri_key'] = (a0, a1) => (_sqlite3_uri_key = Module['_sqlite3_uri_key'] = wasmExports['sqlite3_uri_key'])(a0, a1);
+var _sqlite3_txn_state = Module['_sqlite3_txn_state'] = (a0, a1) => (_sqlite3_txn_state = Module['_sqlite3_txn_state'] = wasmExports['sqlite3_txn_state'])(a0, a1);
+var _sqlite3_changes64 = Module['_sqlite3_changes64'] = (a0) => (_sqlite3_changes64 = Module['_sqlite3_changes64'] = wasmExports['sqlite3_changes64'])(a0);
+var _sqlite3_total_changes64 = Module['_sqlite3_total_changes64'] = (a0) => (_sqlite3_total_changes64 = Module['_sqlite3_total_changes64'] = wasmExports['sqlite3_total_changes64'])(a0);
+var _sqlite3_error_offset = Module['_sqlite3_error_offset'] = (a0) => (_sqlite3_error_offset = Module['_sqlite3_error_offset'] = wasmExports['sqlite3_error_offset'])(a0);
+var _sqlite3_vtab_rhs_value = Module['_sqlite3_vtab_rhs_value'] = (a0, a1, a2) => (_sqlite3_vtab_rhs_value = Module['_sqlite3_vtab_rhs_value'] = wasmExports['sqlite3_vtab_rhs_value'])(a0, a1, a2);
+var _sqlite3_vtab_distinct = Module['_sqlite3_vtab_distinct'] = (a0) => (_sqlite3_vtab_distinct = Module['_sqlite3_vtab_distinct'] = wasmExports['sqlite3_vtab_distinct'])(a0);
+var _sqlite3_vtab_in = Module['_sqlite3_vtab_in'] = (a0, a1, a2) => (_sqlite3_vtab_in = Module['_sqlite3_vtab_in'] = wasmExports['sqlite3_vtab_in'])(a0, a1, a2);
+var _sqlite3_vtab_in_first = Module['_sqlite3_vtab_in_first'] = (a0, a1) => (_sqlite3_vtab_in_first = Module['_sqlite3_vtab_in_first'] = wasmExports['sqlite3_vtab_in_first'])(a0, a1);
+var _sqlite3_vtab_in_next = Module['_sqlite3_vtab_in_next'] = (a0, a1) => (_sqlite3_vtab_in_next = Module['_sqlite3_vtab_in_next'] = wasmExports['sqlite3_vtab_in_next'])(a0, a1);
+var _sqlite3_deserialize = Module['_sqlite3_deserialize'] = (a0, a1, a2, a3, a4, a5) => (_sqlite3_deserialize = Module['_sqlite3_deserialize'] = wasmExports['sqlite3_deserialize'])(a0, a1, a2, a3, a4, a5);
+var _sqlite3_db_name = Module['_sqlite3_db_name'] = (a0, a1) => (_sqlite3_db_name = Module['_sqlite3_db_name'] = wasmExports['sqlite3_db_name'])(a0, a1);
+var _sqlite3_is_interrupted = Module['_sqlite3_is_interrupted'] = (a0) => (_sqlite3_is_interrupted = Module['_sqlite3_is_interrupted'] = wasmExports['sqlite3_is_interrupted'])(a0);
+var _sqlite3_stmt_explain = Module['_sqlite3_stmt_explain'] = (a0, a1) => (_sqlite3_stmt_explain = Module['_sqlite3_stmt_explain'] = wasmExports['sqlite3_stmt_explain'])(a0, a1);
+var _sqlite3_set_errmsg = Module['_sqlite3_set_errmsg'] = (a0, a1, a2) => (_sqlite3_set_errmsg = Module['_sqlite3_set_errmsg'] = wasmExports['sqlite3_set_errmsg'])(a0, a1, a2);
+var _sqlite3_db_status64 = Module['_sqlite3_db_status64'] = (a0, a1, a2, a3, a4) => (_sqlite3_db_status64 = Module['_sqlite3_db_status64'] = wasmExports['sqlite3_db_status64'])(a0, a1, a2, a3, a4);
+var _sqlite3_preupdate_hook = Module['_sqlite3_preupdate_hook'] = (a0, a1, a2) => (_sqlite3_preupdate_hook = Module['_sqlite3_preupdate_hook'] = wasmExports['sqlite3_preupdate_hook'])(a0, a1, a2);
+var _malloc = Module['_malloc'] = (a0) => (_malloc = Module['_malloc'] = wasmExports['malloc'])(a0);
+var _free = Module['_free'] = (a0) => (_free = Module['_free'] = wasmExports['free'])(a0);
+var _realloc = Module['_realloc'] = (a0, a1) => (_realloc = Module['_realloc'] = wasmExports['realloc'])(a0, a1);
+var _sqlite3session_diff = Module['_sqlite3session_diff'] = (a0, a1, a2, a3) => (_sqlite3session_diff = Module['_sqlite3session_diff'] = wasmExports['sqlite3session_diff'])(a0, a1, a2, a3);
+var _sqlite3session_attach = Module['_sqlite3session_attach'] = (a0, a1) => (_sqlite3session_attach = Module['_sqlite3session_attach'] = wasmExports['sqlite3session_attach'])(a0, a1);
+var _sqlite3session_create = Module['_sqlite3session_create'] = (a0, a1, a2) => (_sqlite3session_create = Module['_sqlite3session_create'] = wasmExports['sqlite3session_create'])(a0, a1, a2);
+var _sqlite3session_delete = Module['_sqlite3session_delete'] = (a0) => (_sqlite3session_delete = Module['_sqlite3session_delete'] = wasmExports['sqlite3session_delete'])(a0);
+var _sqlite3session_table_filter = Module['_sqlite3session_table_filter'] = (a0, a1, a2) => (_sqlite3session_table_filter = Module['_sqlite3session_table_filter'] = wasmExports['sqlite3session_table_filter'])(a0, a1, a2);
+var _sqlite3session_changeset = Module['_sqlite3session_changeset'] = (a0, a1, a2) => (_sqlite3session_changeset = Module['_sqlite3session_changeset'] = wasmExports['sqlite3session_changeset'])(a0, a1, a2);
+var _sqlite3session_changeset_strm = Module['_sqlite3session_changeset_strm'] = (a0, a1, a2) => (_sqlite3session_changeset_strm = Module['_sqlite3session_changeset_strm'] = wasmExports['sqlite3session_changeset_strm'])(a0, a1, a2);
+var _sqlite3session_patchset_strm = Module['_sqlite3session_patchset_strm'] = (a0, a1, a2) => (_sqlite3session_patchset_strm = Module['_sqlite3session_patchset_strm'] = wasmExports['sqlite3session_patchset_strm'])(a0, a1, a2);
+var _sqlite3session_patchset = Module['_sqlite3session_patchset'] = (a0, a1, a2) => (_sqlite3session_patchset = Module['_sqlite3session_patchset'] = wasmExports['sqlite3session_patchset'])(a0, a1, a2);
+var _sqlite3session_enable = Module['_sqlite3session_enable'] = (a0, a1) => (_sqlite3session_enable = Module['_sqlite3session_enable'] = wasmExports['sqlite3session_enable'])(a0, a1);
+var _sqlite3session_indirect = Module['_sqlite3session_indirect'] = (a0, a1) => (_sqlite3session_indirect = Module['_sqlite3session_indirect'] = wasmExports['sqlite3session_indirect'])(a0, a1);
+var _sqlite3session_isempty = Module['_sqlite3session_isempty'] = (a0) => (_sqlite3session_isempty = Module['_sqlite3session_isempty'] = wasmExports['sqlite3session_isempty'])(a0);
+var _sqlite3session_memory_used = Module['_sqlite3session_memory_used'] = (a0) => (_sqlite3session_memory_used = Module['_sqlite3session_memory_used'] = wasmExports['sqlite3session_memory_used'])(a0);
+var _sqlite3session_object_config = Module['_sqlite3session_object_config'] = (a0, a1, a2) => (_sqlite3session_object_config = Module['_sqlite3session_object_config'] = wasmExports['sqlite3session_object_config'])(a0, a1, a2);
+var _sqlite3session_changeset_size = Module['_sqlite3session_changeset_size'] = (a0) => (_sqlite3session_changeset_size = Module['_sqlite3session_changeset_size'] = wasmExports['sqlite3session_changeset_size'])(a0);
+var _sqlite3changeset_start = Module['_sqlite3changeset_start'] = (a0, a1, a2) => (_sqlite3changeset_start = Module['_sqlite3changeset_start'] = wasmExports['sqlite3changeset_start'])(a0, a1, a2);
+var _sqlite3changeset_start_v2 = Module['_sqlite3changeset_start_v2'] = (a0, a1, a2, a3) => (_sqlite3changeset_start_v2 = Module['_sqlite3changeset_start_v2'] = wasmExports['sqlite3changeset_start_v2'])(a0, a1, a2, a3);
+var _sqlite3changeset_start_strm = Module['_sqlite3changeset_start_strm'] = (a0, a1, a2) => (_sqlite3changeset_start_strm = Module['_sqlite3changeset_start_strm'] = wasmExports['sqlite3changeset_start_strm'])(a0, a1, a2);
+var _sqlite3changeset_start_v2_strm = Module['_sqlite3changeset_start_v2_strm'] = (a0, a1, a2, a3) => (_sqlite3changeset_start_v2_strm = Module['_sqlite3changeset_start_v2_strm'] = wasmExports['sqlite3changeset_start_v2_strm'])(a0, a1, a2, a3);
+var _sqlite3changeset_next = Module['_sqlite3changeset_next'] = (a0) => (_sqlite3changeset_next = Module['_sqlite3changeset_next'] = wasmExports['sqlite3changeset_next'])(a0);
+var _sqlite3changeset_op = Module['_sqlite3changeset_op'] = (a0, a1, a2, a3, a4) => (_sqlite3changeset_op = Module['_sqlite3changeset_op'] = wasmExports['sqlite3changeset_op'])(a0, a1, a2, a3, a4);
+var _sqlite3changeset_pk = Module['_sqlite3changeset_pk'] = (a0, a1, a2) => (_sqlite3changeset_pk = Module['_sqlite3changeset_pk'] = wasmExports['sqlite3changeset_pk'])(a0, a1, a2);
+var _sqlite3changeset_old = Module['_sqlite3changeset_old'] = (a0, a1, a2) => (_sqlite3changeset_old = Module['_sqlite3changeset_old'] = wasmExports['sqlite3changeset_old'])(a0, a1, a2);
+var _sqlite3changeset_new = Module['_sqlite3changeset_new'] = (a0, a1, a2) => (_sqlite3changeset_new = Module['_sqlite3changeset_new'] = wasmExports['sqlite3changeset_new'])(a0, a1, a2);
+var _sqlite3changeset_conflict = Module['_sqlite3changeset_conflict'] = (a0, a1, a2) => (_sqlite3changeset_conflict = Module['_sqlite3changeset_conflict'] = wasmExports['sqlite3changeset_conflict'])(a0, a1, a2);
+var _sqlite3changeset_fk_conflicts = Module['_sqlite3changeset_fk_conflicts'] = (a0, a1) => (_sqlite3changeset_fk_conflicts = Module['_sqlite3changeset_fk_conflicts'] = wasmExports['sqlite3changeset_fk_conflicts'])(a0, a1);
+var _sqlite3changeset_finalize = Module['_sqlite3changeset_finalize'] = (a0) => (_sqlite3changeset_finalize = Module['_sqlite3changeset_finalize'] = wasmExports['sqlite3changeset_finalize'])(a0);
+var _sqlite3changeset_invert = Module['_sqlite3changeset_invert'] = (a0, a1, a2, a3) => (_sqlite3changeset_invert = Module['_sqlite3changeset_invert'] = wasmExports['sqlite3changeset_invert'])(a0, a1, a2, a3);
+var _sqlite3changeset_invert_strm = Module['_sqlite3changeset_invert_strm'] = (a0, a1, a2, a3) => (_sqlite3changeset_invert_strm = Module['_sqlite3changeset_invert_strm'] = wasmExports['sqlite3changeset_invert_strm'])(a0, a1, a2, a3);
+var _sqlite3changeset_apply_v2 = Module['_sqlite3changeset_apply_v2'] = (a0, a1, a2, a3, a4, a5, a6, a7, a8) => (_sqlite3changeset_apply_v2 = Module['_sqlite3changeset_apply_v2'] = wasmExports['sqlite3changeset_apply_v2'])(a0, a1, a2, a3, a4, a5, a6, a7, a8);
+var _sqlite3changeset_apply_v3 = Module['_sqlite3changeset_apply_v3'] = (a0, a1, a2, a3, a4, a5, a6, a7, a8) => (_sqlite3changeset_apply_v3 = Module['_sqlite3changeset_apply_v3'] = wasmExports['sqlite3changeset_apply_v3'])(a0, a1, a2, a3, a4, a5, a6, a7, a8);
+var _sqlite3changeset_apply = Module['_sqlite3changeset_apply'] = (a0, a1, a2, a3, a4, a5) => (_sqlite3changeset_apply = Module['_sqlite3changeset_apply'] = wasmExports['sqlite3changeset_apply'])(a0, a1, a2, a3, a4, a5);
+var _sqlite3changeset_apply_v3_strm = Module['_sqlite3changeset_apply_v3_strm'] = (a0, a1, a2, a3, a4, a5, a6, a7, a8) => (_sqlite3changeset_apply_v3_strm = Module['_sqlite3changeset_apply_v3_strm'] = wasmExports['sqlite3changeset_apply_v3_strm'])(a0, a1, a2, a3, a4, a5, a6, a7, a8);
+var _sqlite3changeset_apply_v2_strm = Module['_sqlite3changeset_apply_v2_strm'] = (a0, a1, a2, a3, a4, a5, a6, a7, a8) => (_sqlite3changeset_apply_v2_strm = Module['_sqlite3changeset_apply_v2_strm'] = wasmExports['sqlite3changeset_apply_v2_strm'])(a0, a1, a2, a3, a4, a5, a6, a7, a8);
+var _sqlite3changeset_apply_strm = Module['_sqlite3changeset_apply_strm'] = (a0, a1, a2, a3, a4, a5) => (_sqlite3changeset_apply_strm = Module['_sqlite3changeset_apply_strm'] = wasmExports['sqlite3changeset_apply_strm'])(a0, a1, a2, a3, a4, a5);
+var _sqlite3changegroup_new = Module['_sqlite3changegroup_new'] = (a0) => (_sqlite3changegroup_new = Module['_sqlite3changegroup_new'] = wasmExports['sqlite3changegroup_new'])(a0);
+var _sqlite3changegroup_add = Module['_sqlite3changegroup_add'] = (a0, a1, a2) => (_sqlite3changegroup_add = Module['_sqlite3changegroup_add'] = wasmExports['sqlite3changegroup_add'])(a0, a1, a2);
+var _sqlite3changegroup_output = Module['_sqlite3changegroup_output'] = (a0, a1, a2) => (_sqlite3changegroup_output = Module['_sqlite3changegroup_output'] = wasmExports['sqlite3changegroup_output'])(a0, a1, a2);
+var _sqlite3changegroup_add_strm = Module['_sqlite3changegroup_add_strm'] = (a0, a1, a2) => (_sqlite3changegroup_add_strm = Module['_sqlite3changegroup_add_strm'] = wasmExports['sqlite3changegroup_add_strm'])(a0, a1, a2);
+var _sqlite3changegroup_output_strm = Module['_sqlite3changegroup_output_strm'] = (a0, a1, a2) => (_sqlite3changegroup_output_strm = Module['_sqlite3changegroup_output_strm'] = wasmExports['sqlite3changegroup_output_strm'])(a0, a1, a2);
+var _sqlite3changegroup_delete = Module['_sqlite3changegroup_delete'] = (a0) => (_sqlite3changegroup_delete = Module['_sqlite3changegroup_delete'] = wasmExports['sqlite3changegroup_delete'])(a0);
+var _sqlite3changeset_concat = Module['_sqlite3changeset_concat'] = (a0, a1, a2, a3, a4, a5) => (_sqlite3changeset_concat = Module['_sqlite3changeset_concat'] = wasmExports['sqlite3changeset_concat'])(a0, a1, a2, a3, a4, a5);
+var _sqlite3changeset_concat_strm = Module['_sqlite3changeset_concat_strm'] = (a0, a1, a2, a3, a4, a5) => (_sqlite3changeset_concat_strm = Module['_sqlite3changeset_concat_strm'] = wasmExports['sqlite3changeset_concat_strm'])(a0, a1, a2, a3, a4, a5);
+var _sqlite3session_config = Module['_sqlite3session_config'] = (a0, a1) => (_sqlite3session_config = Module['_sqlite3session_config'] = wasmExports['sqlite3session_config'])(a0, a1);
+var _sqlite3_preupdate_old = Module['_sqlite3_preupdate_old'] = (a0, a1, a2) => (_sqlite3_preupdate_old = Module['_sqlite3_preupdate_old'] = wasmExports['sqlite3_preupdate_old'])(a0, a1, a2);
+var _sqlite3_preupdate_count = Module['_sqlite3_preupdate_count'] = (a0) => (_sqlite3_preupdate_count = Module['_sqlite3_preupdate_count'] = wasmExports['sqlite3_preupdate_count'])(a0);
+var _sqlite3_preupdate_depth = Module['_sqlite3_preupdate_depth'] = (a0) => (_sqlite3_preupdate_depth = Module['_sqlite3_preupdate_depth'] = wasmExports['sqlite3_preupdate_depth'])(a0);
+var _sqlite3_preupdate_blobwrite = Module['_sqlite3_preupdate_blobwrite'] = (a0) => (_sqlite3_preupdate_blobwrite = Module['_sqlite3_preupdate_blobwrite'] = wasmExports['sqlite3_preupdate_blobwrite'])(a0);
+var _sqlite3_preupdate_new = Module['_sqlite3_preupdate_new'] = (a0, a1, a2) => (_sqlite3_preupdate_new = Module['_sqlite3_preupdate_new'] = wasmExports['sqlite3_preupdate_new'])(a0, a1, a2);
+var _htons = (a0) => (_htons = wasmExports['htons'])(a0);
+var _emscripten_builtin_memalign = (a0, a1) => (_emscripten_builtin_memalign = wasmExports['emscripten_builtin_memalign'])(a0, a1);
+var _ntohs = (a0) => (_ntohs = wasmExports['ntohs'])(a0);
+var __emscripten_stack_restore = (a0) => (__emscripten_stack_restore = wasmExports['_emscripten_stack_restore'])(a0);
+var __emscripten_stack_alloc = (a0) => (__emscripten_stack_alloc = wasmExports['_emscripten_stack_alloc'])(a0);
+var _emscripten_stack_get_current = () => (_emscripten_stack_get_current = wasmExports['emscripten_stack_get_current'])();
+
+
+
+
+
+Module['wasmMemory'] = wasmMemory;
 
 
 var calledRun;
-
-
-function ExitStatus(status) {
-  this.name = "ExitStatus";
-  this.message = "Program terminated with exit(" + status + ")";
-  this.status = status;
-}
-
-var calledMain = false;
 
 dependenciesFulfilled = function runCaller() {
   
@@ -7472,9 +5734,7 @@ dependenciesFulfilled = function runCaller() {
   if (!calledRun) dependenciesFulfilled = runCaller; 
 };
 
-
-function run(args) {
-  args = args || arguments_;
+function run() {
 
   if (runDependencies > 0) {
     return;
@@ -7499,45 +5759,21 @@ function run(args) {
     initRuntime();
 
     readyPromiseResolve(Module);
-    if (Module['onRuntimeInitialized']) Module['onRuntimeInitialized']();
+    Module['onRuntimeInitialized']?.();
 
     postRun();
   }
 
   if (Module['setStatus']) {
     Module['setStatus']('Running...');
-    setTimeout(function() {
-      setTimeout(function() {
-        Module['setStatus']('');
-      }, 1);
+    setTimeout(() => {
+      setTimeout(() => Module['setStatus'](''), 1);
       doRun();
     }, 1);
   } else
   {
     doRun();
   }
-}
-Module['run'] = run;
-
-
-function exit(status, implicit) {
-  EXITSTATUS = status;
-
-  if (keepRuntimeAlive()) {
-  } else {
-    exitRuntime();
-  }
-
-  procExit(status);
-}
-
-function procExit(code) {
-  EXITSTATUS = code;
-  if (!keepRuntimeAlive()) {
-    if (Module['onExit']) Module['onExit'](code);
-    ABORT = true;
-  }
-  quit_(code, new ExitStatus(code));
 }
 
 if (Module['preInit']) {
@@ -7548,7 +5784,6 @@ if (Module['preInit']) {
 }
 
 run();
-
 
 
 
@@ -15817,16 +14052,30 @@ try{
 
 
 
-  return sqlite3InitModule.ready
+
+
+
+
+
+
+
+moduleRtn = readyPromise;
+
+
+
+
+
+  return moduleRtn;
 }
 );
 })();
-if (typeof exports === 'object' && typeof module === 'object')
+if (typeof exports === 'object' && typeof module === 'object') {
   module.exports = sqlite3InitModule;
-else if (typeof define === 'function' && define['amd'])
-  define([], function() { return sqlite3InitModule; });
-else if (typeof exports === 'object')
-  exports["sqlite3InitModule"] = sqlite3InitModule;
+  
+  
+  module.exports.default = sqlite3InitModule;
+} else if (typeof define === 'function' && define['amd'])
+  define([], () => sqlite3InitModule);
 
 
 (function(){

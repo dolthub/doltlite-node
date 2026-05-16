@@ -5,6 +5,11 @@
 
 #include "sqliteInt.h"
 #include "prolly_hash.h"
+#include "chunk_wal.h"
+#include "chunk_refs.h"
+#include "chunk_index.h"
+#include "chunk_staging.h"
+#include "chunk_file.h"
 
 #define CHUNK_STORE_MAGIC 0x444C5443
 #define CHUNK_STORE_VERSION 11
@@ -66,7 +71,6 @@ static SQLITE_INLINE int catalogParseHeader(
 }
 
 typedef struct ChunkStore ChunkStore;
-typedef struct ChunkIndexEntry ChunkIndexEntry;
 typedef struct ConflictEntry ConflictEntry;
 
 struct ConflictEntry {
@@ -78,25 +82,6 @@ struct ConflictEntry {
   int nTheirVal;
 };
 
-#if defined(__GNUC__) || defined(__clang__)
-#  define DOLTLITE_PACKED __attribute__((__packed__))
-#elif defined(_MSC_VER)
-#  define DOLTLITE_PACKED
-#  pragma pack(push, 1)
-#else
-#  define DOLTLITE_PACKED
-#endif
-
-struct DOLTLITE_PACKED ChunkIndexEntry {
-  ProllyHash hash;
-  i64 offset;
-  int size;
-};
-
-#if defined(_MSC_VER)
-#  pragma pack(pop)
-#endif
-
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #  define CHUNK_STORE_LE_PACKING 1
 #else
@@ -104,85 +89,17 @@ struct DOLTLITE_PACKED ChunkIndexEntry {
 #endif
 
 struct ChunkStore {
-  char *zFilename;
-  sqlite3_file *pFile;
-  sqlite3_vfs *pVfs;
-  ProllyHash refsHash;
-  ProllyHash committedRefsHash;
-
-  struct BranchRef {
-    char *zName;
-    ProllyHash commitHash;
-    ProllyHash workingSetHash;
-  } *aBranches;
-  int nBranches;
-  char *zDefaultBranch;
-
-  struct TagRef {
-    char *zName;
-    ProllyHash commitHash;
-    char *zTagger;
-    char *zEmail;
-    i64 timestamp;
-    char *zMessage;
-  } *aTags;
-  int nTags;
-
-  struct RemoteRef {
-    char *zName;
-    char *zUrl;
-  } *aRemotes;
-  int nRemotes;
-
-  struct TrackingBranch {
-    char *zRemote;
-    char *zBranch;
-    ProllyHash commitHash;
-  } *aTracking;
-  int nTracking;
-
-  int nChunks;
-  i64 iIndexOffset;
-  i64 nIndexSize;
-  i64 iWalOffset;
-  i64 iFileSize;
-
-  /* aIndex is the durable sorted manifest. Small commits append into aRecent
-  ** first so readers can find new chunks without rewriting the manifest. */
-  ChunkIndexEntry *aIndex;
-  int nIndex;
-
-  void *aIndexMmapBase;
-  i64 aIndexMmapSize;
-
-  ChunkIndexEntry *aPending;
-  int nPending;
-  int nPendingAlloc;
-  ChunkIndexEntry *aRecent;
-  int nRecent;
-  int nRecentAlloc;
-  int *aRecentHT;
-  int *aRecentHTNext;
-  int nRecentHTBuilt;
-  int nRecentHTNextAlloc;
-  int nRecentHTSize;
-  int *aPendingHT;
-  int *aPendingHTNext;
-  int nPendingHTBuilt;
-  int nPendingHTNextAlloc;
-  int nPendingHTSize;
-  u8 *pWriteBuf;
-  i64 nWriteBuf;
-  i64 nWriteBufAlloc;
+  ChunkFile file;
+  RefsTable refs;
+  ChunkIndex index;
+  WalState wal;
+  ChunkStaging staging;
 
   u8 readOnly;
   u8 isMemory;
   u8 snapshotPinned;
   u8 hasMovedChecked;
   int graphLockFd;
-  i64 nCommittedWriteBuf;
-
-  i64 nWalData;
 };
 
 int chunkStoreOpen(ChunkStore *cs, sqlite3_vfs *pVfs,
