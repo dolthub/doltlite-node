@@ -12,6 +12,7 @@
     "src/",
     "binding.gyp",
     "scripts/download.js",
+    "scripts/build-amalgamation.js",
     "prebuilds/"
   ],
   "scripts": {
