@@ -85,13 +85,21 @@ export class StatementSync {
   /** Execute the statement and return change metadata. */
   run(...params: unknown[]): RunResult
   /** Return the first result row, or undefined. */
-  get(...params: unknown[]): Record<string, unknown> | undefined
+  get(...params: unknown[]): Record<string, unknown> | unknown[] | undefined
   /** Return all result rows. */
-  all(...params: unknown[]): Record<string, unknown>[]
+  all(...params: unknown[]): Array<Record<string, unknown> | unknown[]>
   /** Return an iterator over result rows. */
-  iterate(...params: unknown[]): IterableIterator<Record<string, unknown>>
+  iterate(...params: unknown[]): IterableIterator<Record<string, unknown> | unknown[]>
   /** Return column metadata for the statement. */
   columns(): ColumnInfo[]
+  /** Return result rows as arrays instead of objects. */
+  setReturnArrays(enabled: boolean): void
+  /** Return integer columns as BigInt values. */
+  setReadBigInts(enabled: boolean): void
+  /** Allow bare object keys for named parameters. */
+  setAllowBareNamedParameters(enabled: boolean): void
+  /** Ignore unknown named parameter keys. */
+  setAllowUnknownNamedParameters(enabled: boolean): void
   /** The SQL source text of the statement. */
   readonly sourceSQL: string
   /** The SQL text with bound parameters expanded. */
