@@ -10,15 +10,21 @@ function loadAddon() {
   const arch = process.arch
   const prebuilt = path.join(__dirname, "prebuilds", `${platform}-${arch}`, "doltlite.node")
   const compiled = path.join(__dirname, "build", "Release", "doltlite.node")
+  const compiledObjTarget = path.join(__dirname, "build", "Release", "obj.target", "doltlite.node")
 
-  for (const candidate of [prebuilt, compiled]) {
+  const errors = []
+  for (const candidate of [prebuilt, compiled, compiledObjTarget]) {
+    if (!fs.existsSync(candidate)) continue
     try {
       return require(candidate)
-    } catch {}
+    } catch (err) {
+      errors.push(`${candidate}: ${err && err.message ? err.message : err}`)
+    }
   }
 
   throw new Error(
     `@dolthub/doltlite: no native binary found for ${platform}-${arch}.\n` +
+    (errors.length ? `Tried:\n${errors.join("\n")}\n` : "") +
     `Run \`npm install\` to build from source, or file an issue at ` +
     `https://github.com/dolthub/doltlite-node/issues`
   )

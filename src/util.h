@@ -4,10 +4,14 @@
 #include <string>
 
 // Converts a SQLite column value to a Napi::Value.
-inline Napi::Value ColumnToNapi(Napi::Env env, sqlite3_stmt* stmt, int col) {
+inline Napi::Value ColumnToNapi(Napi::Env env, sqlite3_stmt* stmt, int col,
+                                bool readBigInts = false) {
   switch (sqlite3_column_type(stmt, col)) {
-    case SQLITE_INTEGER:
-      return Napi::Number::New(env, (double)sqlite3_column_int64(stmt, col));
+    case SQLITE_INTEGER: {
+      sqlite3_int64 i = sqlite3_column_int64(stmt, col);
+      if (readBigInts) return Napi::BigInt::New(env, (int64_t)i);
+      return Napi::Number::New(env, (double)i);
+    }
     case SQLITE_FLOAT:
       return Napi::Number::New(env, sqlite3_column_double(stmt, col));
     case SQLITE_TEXT: {
@@ -28,14 +32,26 @@ inline Napi::Value ColumnToNapi(Napi::Env env, sqlite3_stmt* stmt, int col) {
 }
 
 // Builds a JS object from the current row of a prepared statement.
-inline Napi::Object RowToObject(Napi::Env env, sqlite3_stmt* stmt) {
+inline Napi::Object RowToObject(Napi::Env env, sqlite3_stmt* stmt,
+                                bool readBigInts = false) {
   auto obj = Napi::Object::New(env);
   int n = sqlite3_column_count(stmt);
   for (int i = 0; i < n; i++) {
     const char* name = sqlite3_column_name(stmt, i);
-    obj.Set(name, ColumnToNapi(env, stmt, i));
+    obj.Set(name, ColumnToNapi(env, stmt, i, readBigInts));
   }
   return obj;
+}
+
+// Builds a JS array from the current row of a prepared statement.
+inline Napi::Array RowToArray(Napi::Env env, sqlite3_stmt* stmt,
+                              bool readBigInts = false) {
+  int n = sqlite3_column_count(stmt);
+  auto arr = Napi::Array::New(env, n);
+  for (int i = 0; i < n; i++) {
+    arr.Set((uint32_t)i, ColumnToNapi(env, stmt, i, readBigInts));
+  }
+  return arr;
 }
 
 // Binds a JS value to a prepared statement parameter (1-based index).
@@ -74,9 +90,9 @@ inline bool BindNapi(Napi::Env env, sqlite3_stmt* stmt, int idx, Napi::Value val
 // named: bind({$name: val, ...}) or bare names {name: val} if allowBare=true
 inline bool BindArgs(Napi::Env env, sqlite3_stmt* stmt,
                      const Napi::CallbackInfo& info, size_t startIdx = 0,
-                     bool allowBare = true) {
+                     bool allowBare = true, bool allowUnknown = false) {
   sqlite3_clear_bindings(stmt);
-  if (info.Length() <= (int)startIdx) return true;
+  if (info.Length() <= startIdx) return true;
 
   // Named parameters via a plain object
   if (info.Length() == startIdx + 1 && info[startIdx].IsObject()
@@ -85,15 +101,22 @@ inline bool BindArgs(Napi::Env env, sqlite3_stmt* stmt,
     auto keys = obj.GetPropertyNames();
     for (uint32_t i = 0; i < keys.Length(); i++) {
       std::string key = keys.Get(i).As<Napi::String>().Utf8Value();
-      // Try $name, :name, @name prefixes, then bare if allowBare
       int idx = 0;
-      for (const char* prefix : {"", "$", ":", "@"}) {
-        std::string k = std::string(prefix) + key;
-        idx = sqlite3_bind_parameter_index(stmt, k.c_str());
-        if (idx > 0) break;
+      if (!key.empty() && (key[0] == '$' || key[0] == ':' || key[0] == '@')) {
+        idx = sqlite3_bind_parameter_index(stmt, key.c_str());
+      } else if (allowBare) {
+        for (const char* prefix : {"$", ":", "@", ""}) {
+          std::string k = std::string(prefix) + key;
+          idx = sqlite3_bind_parameter_index(stmt, k.c_str());
+          if (idx > 0) break;
+        }
       }
-      if (idx == 0 && !allowBare) continue;
-      if (idx == 0) continue;
+      if (idx == 0) {
+        if (allowUnknown) continue;
+        Napi::Error::New(env, "Unknown named parameter '" + key + "'")
+            .ThrowAsJavaScriptException();
+        return false;
+      }
       if (!BindNapi(env, stmt, idx, obj.Get(keys.Get(i)))) return false;
     }
     return true;

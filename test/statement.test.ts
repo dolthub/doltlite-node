@@ -41,6 +41,11 @@ describe("DatabaseSync.prepare()", () => {
     expect(typeof stmt.get).toBe("function")
     expect(typeof stmt.all).toBe("function")
     expect(typeof stmt.iterate).toBe("function")
+    expect(typeof stmt.columns).toBe("function")
+    expect(typeof stmt.setReturnArrays).toBe("function")
+    expect(typeof stmt.setReadBigInts).toBe("function")
+    expect(typeof stmt.setAllowBareNamedParameters).toBe("function")
+    expect(typeof stmt.setAllowUnknownNamedParameters).toBe("function")
   })
 
   test("throws on invalid SQL", () => {

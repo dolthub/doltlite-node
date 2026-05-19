@@ -10,7 +10,7 @@ extern "C" napi_value _doltlite_init(napi_env env, napi_value exports);
 // this weak definition. MSVC doesn't support weak functions; skip it there
 // since Windows builds target Node 22+ which supplies the symbol via NAPI_MODULE.
 #if !defined(_MSC_VER)
-extern "C" __attribute__((weak)) napi_value napi_register_module_v1(napi_env env, napi_value exports) {
+extern "C" __attribute__((weak, visibility("default"))) napi_value napi_register_module_v1(napi_env env, napi_value exports) {
   return _doltlite_init(env, exports);
 }
 #endif

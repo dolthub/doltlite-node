@@ -39,7 +39,8 @@ Statement::~Statement() {
 Napi::Value Statement::Run(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
-  if (!BindArgs(env, stmt_, info)) return env.Undefined();
+  if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
+                allowUnknownNamedParameters_)) return env.Undefined();
 
   int rc = sqlite3_step(stmt_);
   sqlite3_reset(stmt_);
@@ -60,11 +61,15 @@ Napi::Value Statement::Run(const Napi::CallbackInfo& info) {
 Napi::Value Statement::Get(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
-  if (!BindArgs(env, stmt_, info)) return env.Undefined();
+  if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
+                allowUnknownNamedParameters_)) return env.Undefined();
 
   int rc = sqlite3_step(stmt_);
   Napi::Value result = env.Undefined();
-  if (rc == SQLITE_ROW) result = RowToObject(env, stmt_);
+  if (rc == SQLITE_ROW) {
+    result = returnArrays_ ? (Napi::Value)RowToArray(env, stmt_, readBigInts_)
+                           : (Napi::Value)RowToObject(env, stmt_, readBigInts_);
+  }
   else if (rc != SQLITE_DONE) ThrowSQLiteError(env, db_->Handle(), "get");
   sqlite3_reset(stmt_);
   return result;
@@ -75,16 +80,40 @@ Napi::Value Statement::Get(const Napi::CallbackInfo& info) {
 Napi::Value Statement::All(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
-  if (!BindArgs(env, stmt_, info)) return env.Undefined();
+  if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
+                allowUnknownNamedParameters_)) return env.Undefined();
 
   auto result = Napi::Array::New(env);
   uint32_t idx = 0;
   int rc;
   while ((rc = sqlite3_step(stmt_)) == SQLITE_ROW)
-    result.Set(idx++, RowToObject(env, stmt_));
+    result.Set(idx++, returnArrays_ ? (Napi::Value)RowToArray(env, stmt_, readBigInts_)
+                                    : (Napi::Value)RowToObject(env, stmt_, readBigInts_));
   sqlite3_reset(stmt_);
   if (rc != SQLITE_DONE) ThrowSQLiteError(env, db_->Handle(), "all");
   return result;
+}
+
+// ── node:sqlite compatibility flags ──────────────────────────────────────────
+
+Napi::Value Statement::SetReturnArrays(const Napi::CallbackInfo& info) {
+  returnArrays_ = info.Length() > 0 && info[0].ToBoolean().Value();
+  return info.Env().Undefined();
+}
+
+Napi::Value Statement::SetReadBigInts(const Napi::CallbackInfo& info) {
+  readBigInts_ = info.Length() > 0 && info[0].ToBoolean().Value();
+  return info.Env().Undefined();
+}
+
+Napi::Value Statement::SetAllowBareNamedParameters(const Napi::CallbackInfo& info) {
+  allowBareNamedParameters_ = info.Length() > 0 && info[0].ToBoolean().Value();
+  return info.Env().Undefined();
+}
+
+Napi::Value Statement::SetAllowUnknownNamedParameters(const Napi::CallbackInfo& info) {
+  allowUnknownNamedParameters_ = info.Length() > 0 && info[0].ToBoolean().Value();
+  return info.Env().Undefined();
 }
 
 // ── iterate() → IterableIterator ─────────────────────────────────────────────
@@ -174,11 +203,15 @@ Napi::Value Statement::ExpandedSQLGetter(const Napi::CallbackInfo& info) {
 
 Napi::Object Statement::Init(Napi::Env env, Napi::Object exports) {
   Napi::Function ctor = DefineClass(env, "StatementSync", {
-    InstanceMethod("run",     &Statement::Run),
-    InstanceMethod("get",     &Statement::Get),
-    InstanceMethod("all",     &Statement::All),
-    InstanceMethod("iterate", &Statement::Iterate),
-    InstanceMethod("columns", &Statement::Columns),
+    InstanceMethod("run",                             &Statement::Run),
+    InstanceMethod("get",                             &Statement::Get),
+    InstanceMethod("all",                             &Statement::All),
+    InstanceMethod("iterate",                         &Statement::Iterate),
+    InstanceMethod("columns",                         &Statement::Columns),
+    InstanceMethod("setReturnArrays",                 &Statement::SetReturnArrays),
+    InstanceMethod("setReadBigInts",                  &Statement::SetReadBigInts),
+    InstanceMethod("setAllowBareNamedParameters",     &Statement::SetAllowBareNamedParameters),
+    InstanceMethod("setAllowUnknownNamedParameters",  &Statement::SetAllowUnknownNamedParameters),
     InstanceAccessor("sourceSQL",   &Statement::SourceSQLGetter,   nullptr),
     InstanceAccessor("expandedSQL", &Statement::ExpandedSQLGetter, nullptr),
   });

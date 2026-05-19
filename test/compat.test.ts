@@ -44,6 +44,10 @@ describe("node:sqlite API surface", () => {
     expect(typeof stmt.all).toBe("function")
     expect(typeof stmt.iterate).toBe("function")
     expect(typeof stmt.columns).toBe("function")
+    expect(typeof stmt.setReturnArrays).toBe("function")
+    expect(typeof stmt.setReadBigInts).toBe("function")
+    expect(typeof stmt.setAllowBareNamedParameters).toBe("function")
+    expect(typeof stmt.setAllowUnknownNamedParameters).toBe("function")
   })
 
   test("StatementSync exposes sourceSQL and expandedSQL", () => {
@@ -131,6 +135,50 @@ describe("node:sqlite behaviour contract", () => {
     db.prepare("INSERT INTO t VALUES (@x)").run({ "@x": 9 })
     const row = db.prepare("SELECT x FROM t").get() as any
     expect(row.x).toBe(9)
+  })
+
+  test("unknown named parameters throw by default", () => {
+    const stmt = db.prepare("SELECT $x AS x")
+    expect(() => stmt.get({ $x: 1, y: 2 })).toThrow("Unknown named parameter")
+  })
+
+  test("setAllowUnknownNamedParameters ignores extra keys", () => {
+    const stmt = db.prepare("SELECT $x AS x")
+    expect(stmt.setAllowUnknownNamedParameters(true)).toBeUndefined()
+    const row = stmt.get({ $x: 1, y: 2 }) as any
+    expect(row.x).toBe(1)
+  })
+
+  test("setAllowBareNamedParameters controls bare named keys", () => {
+    const stmt = db.prepare("SELECT $x AS x")
+    expect(stmt.setAllowBareNamedParameters(false)).toBeUndefined()
+    expect(() => stmt.get({ x: 1 })).toThrow("Unknown named parameter")
+    stmt.setAllowBareNamedParameters(true)
+    const row = stmt.get({ x: 2 }) as any
+    expect(row.x).toBe(2)
+  })
+
+  test("setReturnArrays makes get(), all(), and iterate() return arrays", () => {
+    db.exec("CREATE TABLE t (id INT, name TEXT)")
+    db.exec("INSERT INTO t VALUES (1, 'a'), (2, 'b')")
+    const stmt = db.prepare("SELECT id, name FROM t ORDER BY id")
+    expect(stmt.setReturnArrays(true)).toBeUndefined()
+    expect(stmt.get()).toEqual([1, "a"])
+    expect(stmt.all()).toEqual([[1, "a"], [2, "b"]])
+    expect(Array.from(stmt.iterate())).toEqual([[1, "a"], [2, "b"]])
+    stmt.setReturnArrays(false)
+    expect(stmt.get()).toEqual({ id: 1, name: "a" })
+  })
+
+  test("setReadBigInts makes integer columns return BigInt values", () => {
+    const stmt = db.prepare("SELECT 42 AS n")
+    expect(stmt.setReadBigInts(true)).toBeUndefined()
+    const row = stmt.get() as any
+    expect(row.n).toBe(42n)
+    stmt.setReturnArrays(true)
+    expect(stmt.get()).toEqual([42n])
+    stmt.setReadBigInts(false)
+    expect(stmt.get()).toEqual([42])
   })
 
   test("transaction isolation: rolled-back inserts are not visible", () => {
