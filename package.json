@@ -6,6 +6,10 @@
   "main": "index.js",
   "types": "index.d.ts",
   "type": "commonjs",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "files": [
     "index.js",
     "index.d.ts",

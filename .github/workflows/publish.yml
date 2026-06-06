@@ -94,6 +94,7 @@ jobs:
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+          scope: "@dolthub"
 
       - name: Download all prebuilt artifacts
         uses: actions/download-artifact@v4
@@ -103,6 +104,15 @@ jobs:
 
       - name: Install dependencies (skip build — we have prebuilts)
         run: npm install --ignore-scripts
+
+      - name: Verify npm publish identity
+        run: |
+          npm config get registry
+          npm config get @dolthub:registry
+          npm whoami --registry=https://registry.npmjs.org/
+          npm access list collaborators @dolthub/doltlite --json || true
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
         run: npm publish --access public
