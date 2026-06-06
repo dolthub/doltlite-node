@@ -173,7 +173,7 @@ bun test      # run the test suite
 
 ## Versioning
 
-The package version tracks the DoltLite version. `@dolthub/doltlite@0.10.0` ships the DoltLite 0.10.0 amalgamation.
+The package version tracks the DoltLite version. `@dolthub/doltlite@0.11.8` ships the DoltLite 0.11.8 amalgamation.
 
 ## License
 
