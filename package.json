@@ -11,12 +11,13 @@
     "index.d.ts",
     "src/",
     "binding.gyp",
+    "scripts/install.js",
     "scripts/download.js",
     "scripts/build-amalgamation.js",
     "prebuilds/"
   ],
   "scripts": {
-    "install": "node scripts/download.js && node-gyp rebuild",
+    "install": "node scripts/install.js",
     "build": "node-gyp rebuild",
     "build:debug": "node-gyp rebuild --debug",
     "test": "bun test test/",

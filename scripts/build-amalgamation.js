@@ -5,17 +5,19 @@
 
 const fs = require("fs")
 const path = require("path")
+const pkg = require("../package.json")
 
-const srcRoot   = path.join(__dirname, "../doltlite-src")
+const outDir    = path.join(__dirname, "../amalgamation")
+const srcRoot   = path.join(outDir, ".source")
 const srcDir    = path.join(srcRoot, "src")
 const blake3Dir = path.join(srcRoot, "ext", "blake3")
-const outDir    = path.join(__dirname, "../amalgamation")
 
 const inC       = path.join(srcRoot, "sqlite3.c")
 const inH       = path.join(srcRoot, "sqlite3.h")
 const outC      = path.join(outDir, "doltlite.c")
 const outH      = path.join(outDir, "doltlite.h")
 const outOrig   = path.join(outDir, "doltlite_orig.c")
+const versionMarker = path.join(outDir, ".doltlite-source-version")
 
 if (!fs.existsSync(inC)) {
   console.error(`build-amalgamation: ${inC} not found - run download.js first`)
@@ -40,6 +42,7 @@ SQLITE_PRIVATE int sqlite3PagerWalSystemErrno(Pager *pPager){
 `
 fs.writeFileSync(outC, amalgamation)
 fs.copyFileSync(inH, outH)
+fs.writeFileSync(versionMarker, `${pkg.version}\n`)
 
 // Kept for binding.gyp compatibility. DoltLite release amalgamations are now
 // self-contained and include the prefixed original SQLite implementation.

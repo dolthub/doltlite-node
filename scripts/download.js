@@ -21,7 +21,22 @@ const version = pkg.version
 const amalgDir  = path.join(__dirname, "../amalgamation")
 const outC      = path.join(amalgDir, "doltlite.c")
 const outH      = path.join(amalgDir, "doltlite.h")
-const srcRoot   = path.join(__dirname, "../doltlite-src")
+const versionMarker = path.join(amalgDir, ".doltlite-source-version")
+const srcRoot   = path.join(amalgDir, ".source")
+
+function normalizeVersion(v) {
+  return String(v || "").trim().replace(/^v/, "")
+}
+
+function sourceReady() {
+  if (!fs.existsSync(outC) || !fs.existsSync(outH) || !fs.existsSync(versionMarker)) return false
+  try {
+    const marker = fs.readFileSync(versionMarker, "utf8")
+    return normalizeVersion(marker) === normalizeVersion(version)
+  } catch (_) {
+    return false
+  }
+}
 
 // Upstream dolthub/doltlite ships the CLI for these platform-arch pairs;
 // place the binary next to the .node addon so binPath() can return it.
@@ -50,7 +65,7 @@ function download(url, dest, cb) {
 }
 
 function fetchSource(cb) {
-  if (fs.existsSync(outC) && fs.existsSync(outH)) return cb()
+  if (sourceReady()) return cb()
 
   const tarballUrl = `https://github.com/dolthub/doltlite/releases/download/v${version}/doltlite-autoconf-${version}.tar.gz`
   const tarballPath = path.join(__dirname, `../doltlite-autoconf-${version}.tar.gz`)
