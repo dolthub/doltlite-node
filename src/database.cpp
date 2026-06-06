@@ -4,6 +4,19 @@
 #include <vector>
 #include <string>
 
+static std::string SqliteOpenPath(const std::string& path) {
+#ifdef _WIN32
+  if (path != ":memory:" && path.rfind("file:", 0) != 0) {
+    std::string normalized = path;
+    for (char& c : normalized) {
+      if (c == '\\') c = '/';
+    }
+    return normalized;
+  }
+#endif
+  return path;
+}
+
 // ── Constructor ──────────────────────────────────────────────────────────────
 
 Database::Database(const Napi::CallbackInfo& info) : Napi::ObjectWrap<Database>(info) {
@@ -32,13 +45,15 @@ Database::Database(const Napi::CallbackInfo& info) : Napi::ObjectWrap<Database>(
     : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
   flags |= SQLITE_OPEN_URI;
 
-  int rc = sqlite3_open_v2(path.c_str(), &db_, flags, nullptr);
+  std::string openPath = SqliteOpenPath(path);
+  int rc = sqlite3_open_v2(openPath.c_str(), &db_, flags, nullptr);
   if (rc != SQLITE_OK) {
     std::string msg = db_ ? sqlite3_errmsg(db_) : "Failed to open database";
     if (db_) { sqlite3_close(db_); db_ = nullptr; }
     Napi::Error::New(env, msg).ThrowAsJavaScriptException();
     return;
   }
+  if (path != ":memory:") path_ = path;
 
   sqlite3_busy_timeout(db_, 5000);
   sqlite3_exec(db_, "PRAGMA foreign_keys = ON", nullptr, nullptr, nullptr);
@@ -65,7 +80,8 @@ Napi::Value Database::Open(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
   std::string path = info[0].As<Napi::String>().Utf8Value();
-  int rc = sqlite3_open_v2(path.c_str(), &db_,
+  std::string openPath = SqliteOpenPath(path);
+  int rc = sqlite3_open_v2(openPath.c_str(), &db_,
                            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_URI,
                            nullptr);
   if (rc != SQLITE_OK) {
@@ -73,11 +89,13 @@ Napi::Value Database::Open(const Napi::CallbackInfo& info) {
     if (db_) { sqlite3_close(db_); db_ = nullptr; }
     Napi::Error::New(env, msg).ThrowAsJavaScriptException();
   }
+  if (rc == SQLITE_OK && path != ":memory:") path_ = path;
   return env.Undefined();
 }
 
 Napi::Value Database::Close(const Napi::CallbackInfo& info) {
   if (db_) { sqlite3_close_v2(db_); db_ = nullptr; }
+  path_.clear();
   return info.Env().Undefined();
 }
 
@@ -124,6 +142,7 @@ Napi::Value Database::IsTransactionGetter(const Napi::CallbackInfo& info) {
 Napi::Value Database::Location(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!db_) return env.Null();
+  if (!path_.empty()) return Napi::String::New(env, path_);
   const char* loc = sqlite3_db_filename(db_, "main");
   if (!loc || loc[0] == '\0' || strcmp(loc, ":memory:") == 0) return env.Null();
   return Napi::String::New(env, loc);

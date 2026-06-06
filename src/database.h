@@ -1,6 +1,7 @@
 #pragma once
 #include <napi.h>
 #include "doltlite.h"
+#include <string>
 
 class Database : public Napi::ObjectWrap<Database> {
 public:
@@ -13,6 +14,7 @@ public:
 
 private:
   sqlite3* db_ = nullptr;
+  std::string path_;
 
   // node:sqlite-compatible methods
   Napi::Value Exec(const Napi::CallbackInfo& info);
