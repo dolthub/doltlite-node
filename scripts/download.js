@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-// Downloads the doltlite autoconf source tarball from GitHub releases and
-// builds a complete amalgamation from it, and bundles the matching doltlite
+// Downloads the doltlite autoconf source tarball from GitHub releases,
+// prepares its released amalgamation for node-gyp, and bundles the matching doltlite
 // CLI binary for the current platform into prebuilds/${platform}-${arch}/
 // so that binPath() can return an absolute path.
 //
-// The autoconf tarball contains both sqlite3.c (the base SQLite amalgamation
-// with doltlite's storage patches) and the prolly tree + dolt SQL function
-// source files under src/.  We stitch them into a single doltlite.c that,
-// when compiled with -DDOLTLITE_PROLLY=1, has full version-control support.
+// The autoconf tarball contains a self-contained sqlite3.c with DoltLite's
+// prolly tree and SQL function sources already included. We copy it to
+// amalgamation/doltlite.c so the addon builds the exact released source.
 
 "use strict"
 
