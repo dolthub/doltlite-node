@@ -28,7 +28,17 @@ if (!fs.existsSync(inH)) {
 
 console.log("Preparing released doltlite amalgamation...")
 fs.mkdirSync(outDir, { recursive: true })
-fs.copyFileSync(inC, outC)
+let amalgamation = fs.readFileSync(inC, "utf8")
+amalgamation += `
+
+#if defined(DOLTLITE_PROLLY) && defined(SQLITE_USE_SEH) && !defined(SQLITE_OMIT_WAL)
+SQLITE_PRIVATE int sqlite3PagerWalSystemErrno(Pager *pPager){
+  (void)pPager;
+  return 0;
+}
+#endif
+`
+fs.writeFileSync(outC, amalgamation)
 fs.copyFileSync(inH, outH)
 
 // Kept for binding.gyp compatibility. DoltLite release amalgamations are now
