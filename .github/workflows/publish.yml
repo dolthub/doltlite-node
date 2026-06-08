@@ -115,7 +115,17 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
-        run: npm publish --access public
+        run: |
+          if npm publish --access public; then
+            echo "Published."
+          else
+            v=$(node -p "require('./package.json').version")
+            if npm view "@dolthub/doltlite@$v" version >/dev/null 2>&1; then
+              echo "v$v is already published to npm; continuing to the GitHub release."
+            else
+              exit 1
+            fi
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
