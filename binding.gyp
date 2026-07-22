@@ -49,7 +49,8 @@
           "libraries": ["-lpthread"]
         }],
         ["OS=='win'", {
-          "defines": ["strncasecmp=_strnicmp"]
+          "defines": ["strncasecmp=_strnicmp"],
+          "libraries": ["Ws2_32.lib"]
         }]
       ]
     }
