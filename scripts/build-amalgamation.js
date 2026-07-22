@@ -31,15 +31,19 @@ if (!fs.existsSync(inH)) {
 console.log("Preparing released doltlite amalgamation...")
 fs.mkdirSync(outDir, { recursive: true })
 let amalgamation = fs.readFileSync(inC, "utf8")
-amalgamation += `
 
-#if defined(DOLTLITE_PROLLY) && defined(SQLITE_USE_SEH) && !defined(SQLITE_OMIT_WAL)
-SQLITE_PRIVATE int sqlite3PagerWalSystemErrno(Pager *pPager){
-  (void)pPager;
-  return 0;
-}
+// DoltLite releases before v0.11.37 emitted the Winsock 2 headers after
+// SQLite's Windows VFS had already included windows.h.  Keep those releases
+// buildable while newer release amalgamations carry the ordering fix directly.
+if (!amalgamation.includes("DOLTLITE_AMALGAMATION_WINSOCK2_EARLY")) {
+  amalgamation = `/* DOLTLITE_NODE_WINSOCK2_EARLY_FALLBACK */
+#ifdef _WIN32
+# include <winsock2.h>
+# include <ws2tcpip.h>
 #endif
-`
+
+${amalgamation}`
+}
 fs.writeFileSync(outC, amalgamation)
 fs.copyFileSync(inH, outH)
 fs.writeFileSync(versionMarker, `${pkg.version}\n`)
