@@ -12,7 +12,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Node 18 and 20 bundle node-gyp versions that do not yet recognize
+        # the Visual Studio 2026 installation on windows-latest. Keep the
+        # compatibility matrix on VS 2022; release-windows below exercises
+        # the current publishing image with the current node-gyp.
+        os: [ubuntu-latest, macos-latest, windows-2022]
         node: ["18", "20", "22"]
 
     steps:
@@ -28,6 +32,33 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+
+      - name: Run tests
+        run: bun test test/
+
+  release-windows:
+    name: Windows release toolchain
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies without building
+        run: npm install --ignore-scripts
+
+      - name: Download amalgamation
+        run: node scripts/download.js
+
+      - name: Build with the publishing toolchain
+        run: npx node-gyp rebuild
 
       - name: Run tests
         run: bun test test/
