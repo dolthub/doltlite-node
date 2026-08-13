@@ -1,6 +1,6 @@
 {
   "name": "@dolthub/doltlite",
-  "version": "0.11.45",
+  "version": "0.11.46",
   "description": "Node.js bindings for DoltLite — a SQLite fork with Git-style version control",
   "license": "Apache-2.0",
   "main": "index.js",
