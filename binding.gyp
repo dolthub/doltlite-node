@@ -50,7 +50,7 @@
         }],
         ["OS=='win'", {
           "defines": ["strncasecmp=_strnicmp"],
-          "libraries": ["Ws2_32.lib"]
+          "libraries": ["Ws2_32.lib", "Crypt32.lib", "Bcrypt.lib"]
         }]
       ]
     }
