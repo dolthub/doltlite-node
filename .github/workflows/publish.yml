@@ -105,6 +105,12 @@ jobs:
       - name: Install dependencies (skip build — we have prebuilts)
         run: npm install --ignore-scripts
 
+      - name: Restore bundled CLI permissions
+        run: chmod 755 prebuilds/linux-x64/doltlite prebuilds/darwin-arm64/doltlite
+
+      - name: Smoke test npm archive
+        run: node scripts/test-package.js
+
       - name: Verify npm publish identity
         run: |
           npm config get registry
