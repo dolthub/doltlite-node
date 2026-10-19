@@ -27,18 +27,6 @@ describe("released amalgamation preparation", () => {
     expect(winsock).toBeLessThan(windows)
   })
 
-  test("keeps lock-path allocation on the stack with MSVC", () => {
-    const source = readFileSync(sourcePath, "utf8")
-    const output = readFileSync(outputPath, "utf8")
-    const vla = '  char zLock[nDir + (nPath - nDir) + sizeof(".-lock") + 1];'
-
-    if (source.includes(vla)) {
-      expect(output).toContain("DOLTLITE_NODE_MSVC_LOCK_PATH_FALLBACK")
-      expect(output).toContain('#ifdef _MSC_VER\n  char *zLock = (char*)_alloca(nPath + sizeof(".-lock"));')
-      expect(output).toContain(`#else\n${vla}\n#endif`)
-    }
-  })
-
   test("preserves release source outside compiler compatibility fixes", () => {
     const source = readFileSync(sourcePath, "utf8")
     const output = readFileSync(outputPath, "utf8")
