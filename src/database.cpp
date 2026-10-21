@@ -246,6 +246,18 @@ Napi::Value Database::DoltCheckout(const Napi::CallbackInfo& info) {
   return env.Undefined();
 }
 
+// Commit hashes are 40 lowercase hex characters; every other dolt_merge
+// result (for example "Already up to date") is a status string.
+static bool IsCommitHash(const std::string& value) {
+  if (value.size() != 40) return false;
+  for (char c : value) {
+    const bool digit = c >= '0' && c <= '9';
+    const bool lower = c >= 'a' && c <= 'f';
+    if (!digit && !lower) return false;
+  }
+  return true;
+}
+
 Napi::Value Database::DoltMerge(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
@@ -254,15 +266,23 @@ Napi::Value Database::DoltMerge(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
   std::string branch = info[0].As<Napi::String>().Utf8Value();
-  // dolt_merge is a scalar function returning the merge commit hash (or NULL on conflict).
-  ExecScalar(env, "SELECT dolt_merge(?)", {branch});
+  // Resolve once, then merge that immutable commit. Re-reading the mutable
+  // branch after a merge can misclassify the result or throw if a peer has
+  // advanced/deleted the branch. The captured hash is the actual merge input,
+  // not an inference about unlocked state before or after the operation.
+  std::string target = ExecScalar(env, "SELECT dolt_hashof(?)", {branch});
   if (env.IsExceptionPending()) return env.Undefined();
-  // Derive fast_forward and conflicts from post-merge state.
+  std::string outcome = ExecScalar(env,
+    "SELECT dolt_merge(?, '-m', 'Merge branch ''' || ? || ''' into ' || active_branch())",
+    {target, branch});
+  if (env.IsExceptionPending()) return env.Undefined();
+  // Fast-forward returns the chosen input commit; a three-way merge returns
+  // a new commit, and an up-to-date merge returns a status string.
+  int fastForward = IsCommitHash(outcome) && outcome == target ? 1 : 0;
   std::string nConflicts = ExecScalar(env, "SELECT COUNT(*) FROM dolt_conflicts", {});
-  std::string logLen = ExecScalar(env,
-    "SELECT COUNT(*) FROM dolt_log LIMIT 2", {});
+  if (env.IsExceptionPending()) return env.Undefined();
   auto result = Napi::Object::New(env);
-  result.Set("fast_forward", Napi::Number::New(env, 0));
+  result.Set("fast_forward", Napi::Number::New(env, fastForward));
   result.Set("conflicts",    Napi::Number::New(env,
     (double)std::stoi(nConflicts.empty() ? "0" : nConflicts)));
   return result;
