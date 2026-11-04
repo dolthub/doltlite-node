@@ -202,6 +202,75 @@ describe("StatementSync.iterate()", () => {
     }
     expect(rows).toHaveLength(0)
   })
+
+  test("steps lazily instead of reading the whole result", () => {
+    const iter = db
+      .prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) SELECT x FROM n")
+      .iterate()
+    const xs = [iter.next(), iter.next(), iter.next()].map(r => (r.value as any).x)
+    expect(xs).toEqual([1, 2, 3])
+    iter.return?.()
+  })
+
+  test("binds parameters", () => {
+    const ids = [...(db.prepare("SELECT id FROM products WHERE id >= ? ORDER BY id").iterate(2) as any)]
+    expect(ids.map((r: any) => r.id)).toEqual([2, 3])
+  })
+
+  test("honors setReturnArrays", () => {
+    const stmt = db.prepare("SELECT id, name FROM products WHERE id = 1")
+    stmt.setReturnArrays(true)
+    expect(stmt.iterate().next().value).toEqual([1, "Apple"])
+  })
+
+  test("return() resets the statement so it can run again", () => {
+    const stmt = db.prepare("SELECT id FROM products ORDER BY id")
+    const iter = stmt.iterate()
+    iter.next()
+    expect(iter.return?.()).toEqual({ done: true, value: undefined })
+    expect(iter.next().done).toBe(true)
+    expect(stmt.all().map((r: any) => r.id)).toEqual([1, 2, 3])
+  })
+
+  test("breaking out of for-of releases the statement", () => {
+    const stmt = db.prepare("SELECT id FROM products ORDER BY id")
+    for (const _ of stmt.iterate() as any) break
+    expect(stmt.all()).toHaveLength(3)
+  })
+
+  test("running the statement again invalidates an open iterator", () => {
+    const stmt = db.prepare("SELECT id FROM products ORDER BY id")
+    const iter = stmt.iterate()
+    iter.next()
+    expect(stmt.all()).toHaveLength(3)
+    expect(() => iter.next()).toThrow(/invalidated/)
+    expect(iter.next().done).toBe(true)
+  })
+
+  test("a fresh iterate() restarts from the first row", () => {
+    const stmt = db.prepare("SELECT id FROM products ORDER BY id")
+    const first = stmt.iterate()
+    first.next()
+    first.next()
+    expect((stmt.iterate().next().value as any).id).toBe(1)
+  })
+
+  test("throws errors raised while stepping", () => {
+    const iter = db
+      .prepare("SELECT CASE WHEN id = 2 THEN json_extract('not json', '$') ELSE id END AS v FROM products ORDER BY id")
+      .iterate()
+    expect((iter.next().value as any).v).toBe(1)
+    expect(() => iter.next()).toThrow()
+    expect(iter.next().done).toBe(true)
+  })
+
+  test("other statements can run while an iterator is open", () => {
+    const iter = db.prepare("SELECT id FROM products ORDER BY id").iterate()
+    expect((iter.next().value as any).id).toBe(1)
+    db.prepare("INSERT INTO products (id, name) VALUES (10, 'Date')").run()
+    expect((iter.next().value as any).id).toBe(2)
+    iter.return?.()
+  })
 })
 
 // ── StatementSync.columns() ──────────────────────────────────────────────────

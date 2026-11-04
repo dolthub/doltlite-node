@@ -16,6 +16,7 @@ private:
   sqlite3_stmt* stmt_ = nullptr;
   Database* db_ = nullptr;
   std::string source_;
+  uint64_t generation_ = 0;
   bool returnArrays_ = false;
   bool readBigInts_ = false;
   bool allowBareNamedParameters_ = true;
