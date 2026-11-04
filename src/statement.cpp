@@ -39,6 +39,8 @@ Statement::~Statement() {
 Napi::Value Statement::Run(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
+  ++generation_;
+  sqlite3_reset(stmt_);
   if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
                 allowUnknownNamedParameters_)) return env.Undefined();
 
@@ -61,6 +63,8 @@ Napi::Value Statement::Run(const Napi::CallbackInfo& info) {
 Napi::Value Statement::Get(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
+  ++generation_;
+  sqlite3_reset(stmt_);
   if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
                 allowUnknownNamedParameters_)) return env.Undefined();
 
@@ -80,6 +84,8 @@ Napi::Value Statement::Get(const Napi::CallbackInfo& info) {
 Napi::Value Statement::All(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
+  ++generation_;
+  sqlite3_reset(stmt_);
   if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
                 allowUnknownNamedParameters_)) return env.Undefined();
 
@@ -117,43 +123,69 @@ Napi::Value Statement::SetAllowUnknownNamedParameters(const Napi::CallbackInfo& 
 }
 
 // ── iterate() → IterableIterator ─────────────────────────────────────────────
-// Returns a plain JS iterator object: { next() { return {value, done} } }
-// A full Symbol.iterator implementation requires a persistent Napi::Reference
-// to the stmt; for simplicity we materialise all rows eagerly here and return
-// an iterator over the resulting array. Callers that need true lazy iteration
-// can use a prepared statement loop directly.
+// Steps the statement once per next(), so a large result never has to fit in
+// memory. Running the statement again (run/get/all/iterate) invalidates any
+// iterator still open on it.
 
 Napi::Value Statement::Iterate(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  // Materialise all rows then hand back a JS iterator over them.
-  auto all = All(info);
-  if (env.IsExceptionPending()) return env.Undefined();
+  if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
+  uint64_t generation = ++generation_;
+  sqlite3_reset(stmt_);
+  if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
+                allowUnknownNamedParameters_)) return env.Undefined();
 
-  auto arr = all.As<Napi::Array>();
-  auto idxRef = std::make_shared<uint32_t>(0);
-  uint32_t len = arr.Length();
+  // Keeps this Statement (and its sqlite3_stmt) alive while the iterator is.
+  auto selfRef = std::make_shared<Napi::ObjectReference>(
+      Napi::Persistent(info.This().As<Napi::Object>()));
+  auto done = std::make_shared<bool>(false);
 
-  // Build a persistent reference so the closure keeps the array alive.
-  auto arrRef = std::make_shared<Napi::Reference<Napi::Array>>(
-      Napi::Persistent(arr));
-
-  auto nextFn = Napi::Function::New(env, [arrRef, idxRef, len](const Napi::CallbackInfo& cb) -> Napi::Value {
-    Napi::Env e = cb.Env();
+  auto result = [](Napi::Env e, Napi::Value value, bool isDone) {
     auto obj = Napi::Object::New(e);
-    if (*idxRef >= len) {
-      obj.Set("done",  Napi::Boolean::New(e, true));
-      obj.Set("value", e.Undefined());
-    } else {
-      obj.Set("done",  Napi::Boolean::New(e, false));
-      obj.Set("value", arrRef->Value().Get(*idxRef));
-      (*idxRef)++;
-    }
+    obj.Set("done", Napi::Boolean::New(e, isDone));
+    obj.Set("value", value);
     return obj;
+  };
+
+  auto nextFn = Napi::Function::New(env, [this, selfRef, done, generation, result](const Napi::CallbackInfo& cb) -> Napi::Value {
+    Napi::Env e = cb.Env();
+    if (*done) return result(e, e.Undefined(), true);
+    if (generation != generation_) {
+      *done = true;
+      Napi::Error::New(e, "iterator was invalidated: the statement was executed again").ThrowAsJavaScriptException();
+      return e.Undefined();
+    }
+    if (!stmt_) {
+      *done = true;
+      Napi::Error::New(e, "Statement is finalised").ThrowAsJavaScriptException();
+      return e.Undefined();
+    }
+    int rc = sqlite3_step(stmt_);
+    if (rc == SQLITE_ROW) {
+      Napi::Value row = returnArrays_ ? (Napi::Value)RowToArray(e, stmt_, readBigInts_)
+                                      : (Napi::Value)RowToObject(e, stmt_, readBigInts_);
+      return result(e, row, false);
+    }
+    *done = true;
+    if (rc != SQLITE_DONE) {
+      ThrowSQLiteError(e, db_->Handle(), "iterate");
+      sqlite3_reset(stmt_);
+      return e.Undefined();
+    }
+    sqlite3_reset(stmt_);
+    return result(e, e.Undefined(), true);
+  });
+
+  auto returnFn = Napi::Function::New(env, [this, selfRef, done, generation, result](const Napi::CallbackInfo& cb) -> Napi::Value {
+    Napi::Env e = cb.Env();
+    if (!*done && generation == generation_ && stmt_) sqlite3_reset(stmt_);
+    *done = true;
+    return result(e, cb.Length() > 0 ? cb[0] : e.Undefined(), true);
   });
 
   auto iter = Napi::Object::New(env);
   iter.Set("next", nextFn);
-  // Make the iterator itself iterable (Symbol.iterator returns this).
+  iter.Set("return", returnFn);
   auto selfFn = Napi::Function::New(env, [](const Napi::CallbackInfo& cb) -> Napi::Value {
     return cb.This();
   });
