@@ -217,6 +217,90 @@ describe("doltMerge()", () => {
     expect(cfVal).toBe(0)
   })
 
+  test("reports a real fast-forward as fast_forward 1", () => {
+    db.doltBranch("ff-branch")
+    db.doltCheckout("ff-branch")
+    db.exec("INSERT INTO items VALUES (7, 'from ff-branch')")
+    db.doltCommit("ff commit")
+    db.doltCheckout("main")
+    const result = db.doltMerge("ff-branch")
+    const ffVal = result.fast_forward
+    const cfVal = result.conflicts
+    expect(ffVal).toBe(1)
+    expect(cfVal).toBe(0)
+    // HEAD advanced to exactly the incoming branch head.
+    const head = db.prepare("SELECT dolt_hashof('HEAD') AS h").get() as any
+    const branch = db.prepare("SELECT dolt_hashof('ff-branch') AS h").get() as any
+    expect(head.h).toBe(branch.h)
+  })
+
+  test("reports a three-way merge as fast_forward 0", () => {
+    db.doltBranch("three-way")
+    db.doltCheckout("three-way")
+    db.exec("INSERT INTO items VALUES (8, 'from branch')")
+    db.doltCommit("branch commit")
+    db.doltCheckout("main")
+    db.exec("INSERT INTO items VALUES (9, 'from main')")
+    db.doltCommit("main commit")
+    const result = db.doltMerge("three-way")
+    const ffVal = result.fast_forward
+    const cfVal = result.conflicts
+    expect(ffVal).toBe(0)
+    expect(cfVal).toBe(0)
+    // The merge landed on a new commit, not on the branch head.
+    const head = db.prepare("SELECT dolt_hashof('HEAD') AS h").get() as any
+    const branch = db.prepare("SELECT dolt_hashof('three-way') AS h").get() as any
+    expect(head.h).not.toBe(branch.h)
+    expect((db.prepare("SELECT COUNT(*) AS n FROM items").get() as any).n).toBe(2)
+  })
+
+  test("reports an up-to-date merge as fast_forward 0", () => {
+    db.doltBranch("stale")
+    db.exec("INSERT INTO items VALUES (10, 'ahead')")
+    db.doltCommit("ahead of stale")
+    const before = db.prepare("SELECT dolt_hashof('HEAD') AS h").get() as any
+    const result = db.doltMerge("stale")
+    const ffVal = result.fast_forward
+    expect(ffVal).toBe(0)
+    const after = db.prepare("SELECT dolt_hashof('HEAD') AS h").get() as any
+    expect(after.h).toBe(before.h)
+  })
+
+  test("fast-forwards to an incoming commit that is itself a merge", () => {
+    const base = (db.prepare("SELECT dolt_hashof('HEAD') AS h").get() as any).h
+    db.doltBranch("side")
+    db.doltCheckout("side")
+    db.exec("INSERT INTO items VALUES (11, 'side')")
+    db.doltCommit("side commit")
+    db.doltCheckout("main")
+    db.exec("INSERT INTO items VALUES (12, 'main')")
+    db.doltCommit("main commit")
+    db.doltMerge("side")
+    const merged = (db.prepare("SELECT dolt_hashof('HEAD') AS h").get() as any).h
+    db.doltBranch("behind", base)
+    db.doltCheckout("behind")
+    expect(db.doltMerge("main").fast_forward).toBe(1)
+    expect((db.prepare("SELECT dolt_hashof('HEAD') AS h").get() as any).h).toBe(merged)
+  })
+
+  test("keeps the caller's branch label in the three-way commit message", () => {
+    db.doltBranch("editor's-take")
+    db.doltCheckout("editor's-take")
+    db.exec("INSERT INTO items VALUES (13, 'take')")
+    db.doltCommit("take commit")
+    db.doltCheckout("main")
+    db.exec("INSERT INTO items VALUES (14, 'main')")
+    db.doltCommit("main commit")
+    expect(db.doltMerge("editor's-take").fast_forward).toBe(0)
+    expect(db.doltLog({ limit: 1 })[0]?.message).toBe("Merge branch 'editor's-take' into main")
+  })
+
+  test("rejects an unknown merge source without changing HEAD", () => {
+    const head = (db.prepare("SELECT dolt_hashof('HEAD') AS h").get() as any).h
+    expect(() => db.doltMerge("does-not-exist")).toThrow()
+    expect((db.prepare("SELECT dolt_hashof('HEAD') AS h").get() as any).h).toBe(head)
+  })
+
   test("merged data is visible on main after merge", () => {
     db.doltBranch("data-branch")
     db.doltCheckout("data-branch")
