@@ -32,6 +32,22 @@ console.log("Preparing released doltlite amalgamation...")
 fs.mkdirSync(outDir, { recursive: true })
 let amalgamation = fs.readFileSync(inC, "utf8")
 
+const lockPathVla = '  char zLock[nDir + (nPath - nDir) + sizeof(".-lock") + 1];'
+if (amalgamation.includes(lockPathVla)) {
+  amalgamation = `/* DOLTLITE_NODE_MSVC_LOCK_PATH_FALLBACK */
+#ifdef _MSC_VER
+# include <malloc.h>
+#endif
+
+${amalgamation.replace(lockPathVla, [
+    "#ifdef _MSC_VER",
+    '  char *zLock = (char*)_alloca(nPath + sizeof(".-lock"));',
+    "#else",
+    lockPathVla,
+    "#endif",
+  ].join("\n"))}`
+}
+
 // DoltLite releases before v0.11.37 emitted the Winsock 2 headers after
 // SQLite's Windows VFS had already included windows.h.  Keep those releases
 // buildable while newer release amalgamations carry the ordering fix directly.

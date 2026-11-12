@@ -27,14 +27,15 @@ describe("released amalgamation preparation", () => {
     expect(winsock).toBeLessThan(windows)
   })
 
-  test("uses an unmodified fixed release amalgamation", () => {
+  test("preserves release source outside compiler compatibility fixes", () => {
     const source = readFileSync(sourcePath, "utf8")
     const output = readFileSync(outputPath, "utf8")
+    const vla = '  char zLock[nDir + (nPath - nDir) + sizeof(".-lock") + 1];'
+    const restored = output
+      .replace(/^\/\* DOLTLITE_NODE_WINSOCK2_EARLY_FALLBACK \*\/\n#ifdef _WIN32\n# include <winsock2.h>\n# include <ws2tcpip.h>\n#endif\n\n/, "")
+      .replace(/^\/\* DOLTLITE_NODE_MSVC_LOCK_PATH_FALLBACK \*\/\n#ifdef _MSC_VER\n# include <malloc.h>\n#endif\n\n/, "")
+      .replace(`#ifdef _MSC_VER\n  char *zLock = (char*)_alloca(nPath + sizeof(".-lock"));\n#else\n${vla}\n#endif`, vla)
 
-    if (source.includes("DOLTLITE_AMALGAMATION_WINSOCK2_EARLY")) {
-      expect(output).toBe(source)
-    } else {
-      expect(output).toContain("DOLTLITE_NODE_WINSOCK2_EARLY_FALLBACK")
-    }
+    expect(restored).toBe(source)
   })
 })
