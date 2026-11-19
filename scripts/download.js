@@ -124,6 +124,7 @@ fetchSource((err) => {
     console.error(err.message)
     process.exit(1)
   }
+  if (process.argv.includes("--source-only")) return
   fetchCli((cliErr) => {
     if (cliErr) {
       // Non-fatal: the addon still builds and works; binPath() will throw

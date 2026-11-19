@@ -38,12 +38,12 @@ describe("binPath", () => {
     expect(statSync(p).isFile()).toBe(true)
   })
 
-  test("the binary runs and produces output", () => {
+  test("the binary runs the Prolly engine", () => {
     const p = binPath()
-    const out = execFileSync(p, [":memory:", "SELECT dolt_version();"], {
+    const out = execFileSync(p, [":memory:", "SELECT doltlite_engine();"], {
       encoding: "utf8",
       timeout: 5000,
     }).trim()
-    expect(out).toBe(`v${require("../package.json").version}`)
+    expect(out).toBe("prolly")
   })
 })

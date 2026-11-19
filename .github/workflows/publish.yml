@@ -51,10 +51,39 @@ jobs:
         run: |
           test "$(node -p 'process.platform + "-" + process.arch')" = "$TARGET"
           npm ci --ignore-scripts
-          node scripts/download.js
+          node scripts/download.js --source-only
           npm run build
           mkdir -p "prebuilds/$TARGET"
           cp build/Release/doltlite.node "prebuilds/$TARGET/doltlite.node"
+
+      - name: Install CLI dependencies (Linux)
+        if: matrix.cli != '' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zlib1g-dev
+
+      - name: Build the matching Unix CLI
+        if: matrix.cli != '' && runner.os != 'Windows'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          CLI: ${{ matrix.cli }}
+        run: bash scripts/build-cli.sh "$TARGET" "$CLI"
+
+      - name: Install CLI dependencies (Windows)
+        if: matrix.cli != '' && runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-zlib make tcl
+
+      - name: Build the matching Windows CLI
+        if: matrix.cli != '' && runner.os == 'Windows'
+        shell: msys2 {0}
+        env:
+          TARGET: ${{ matrix.target }}
+          CLI: ${{ matrix.cli }}
+        run: bash scripts/build-cli.sh "$TARGET" "$CLI"
 
       - uses: actions/upload-artifact@v4
         with:
