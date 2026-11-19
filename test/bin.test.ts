@@ -14,13 +14,12 @@ if (!addonAvailable()) {
 
 const { binPath } = require("../index") as typeof import("../index")
 
-// Upstream dolthub/doltlite only releases CLI tools for these platforms;
-// other prebuilds get the .node addon but no shell binary.
-const CLI_PLATFORMS = new Set(["linux-x64", "darwin-arm64", "win32-x64"])
+const { include } = require("../scripts/release-targets.json")
 const key = `${process.platform}-${process.arch}`
+const target = include.find((target: { target: string }) => target.target === key)
 
 describe("binPath", () => {
-  if (!CLI_PLATFORMS.has(key)) {
+  if (!target?.cli) {
     test("throws on platforms with no upstream CLI build", () => {
       expect(() => binPath()).toThrow(/no doltlite CLI binary bundled/)
     })
@@ -39,16 +38,12 @@ describe("binPath", () => {
     expect(statSync(p).isFile()).toBe(true)
   })
 
-  test("the binary runs and produces output", () => {
+  test("the binary runs the Prolly engine", () => {
     const p = binPath()
-    // sqlite3-style shell: `<binary> :memory: "<sql>"` runs the SQL once and exits.
-    // We only assert the binary executes and prints *something* — the upstream
-    // Windows v0.10.0 build returns "dev" rather than a semver string, and we
-    // don't want to lock the test to that quirk.
-    const out = execFileSync(p, [":memory:", "SELECT dolt_version();"], {
+    const out = execFileSync(p, [":memory:", "SELECT doltlite_engine();"], {
       encoding: "utf8",
       timeout: 5000,
     }).trim()
-    expect(out.length).toBeGreaterThan(0)
+    expect(out).toBe("prolly")
   })
 })

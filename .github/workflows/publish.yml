@@ -1,148 +1,248 @@
 name: Publish
 
-# Triggered by pushing a version tag: git tag v0.10.1 && git push --tags
 on:
   push:
     tags:
       - "v*"
+  pull_request:
+    paths:
+      - ".github/workflows/publish.yml"
+      - "scripts/**"
+      - "package*.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: node-package-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Build prebuilt binaries for each platform/arch before publishing.
-  # Consumers get a fast install with no compilation required.
+  targets:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: targets
+        run: node -p '"matrix=" + JSON.stringify(require("./scripts/release-targets.json"))' >> "$GITHUB_OUTPUT"
+
   prebuilds:
-    name: Prebuilt — ${{ matrix.os }} ${{ matrix.arch }}
-    runs-on: ${{ matrix.os }}
+    name: Prebuilt — ${{ matrix.target }}
+    needs: targets
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            arch: x64
-            node_arch: x64
-          - os: ubuntu-latest
-            arch: arm64
-            node_arch: x64        # cross-compile on x64 runner
-          - os: macos-latest
-            arch: x64
-            node_arch: x64
-          - os: macos-latest
-            arch: arm64
-            node_arch: arm64
-          - os: windows-latest
-            arch: x64
-            node_arch: x64
-
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          architecture: ${{ matrix.node_arch }}
+          node-version: "24"
+          architecture: ${{ matrix.arch }}
 
-      - name: Download amalgamation
-        run: node scripts/download.js
-
-      - name: Install node-addon-api
-        run: npm install --ignore-scripts
-
-      - name: Build prebuilt (Linux arm64 cross-compile)
-        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64'
-        run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          npm_config_arch=arm64 npm_config_target_arch=arm64 \
-            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
-            npx node-gyp rebuild
-          mkdir -p prebuilds/linux-arm64
-          cp build/Release/doltlite.node prebuilds/linux-arm64/doltlite.node
-
-      - name: Build prebuilt (all others)
-        if: "!(matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64')"
+      - name: Build native addon from the matching engine release
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          npx node-gyp rebuild
-          OS=$(node -p "process.platform")
-          ARCH=${{ matrix.arch }}
-          mkdir -p prebuilds/${OS}-${ARCH}
-          cp build/Release/doltlite.node prebuilds/${OS}-${ARCH}/doltlite.node
+          test "$(node -p 'process.platform + "-" + process.arch')" = "$TARGET"
+          npm ci --ignore-scripts
+          node scripts/download.js --source-only
+          npm run build
+          mkdir -p "prebuilds/$TARGET"
+          cp build/Release/doltlite.node "prebuilds/$TARGET/doltlite.node"
 
-      # The CLI binary is fetched by scripts/download.js in the
-      # "Download amalgamation" step earlier and is already at
-      # prebuilds/${platform}-${arch}/doltlite[.exe], so nothing extra
-      # to do here.
+      - name: Install CLI dependencies (Linux)
+        if: matrix.cli != '' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zlib1g-dev
 
-      - name: Upload prebuilt artifact
-        uses: actions/upload-artifact@v4
+      - name: Build the matching Unix CLI
+        if: matrix.cli != '' && runner.os != 'Windows'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          CLI: ${{ matrix.cli }}
+        run: bash scripts/build-cli.sh "$TARGET" "$CLI"
+
+      - name: Install CLI dependencies (Windows)
+        if: matrix.cli != '' && runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
         with:
-          name: prebuilt-${{ matrix.os }}-${{ matrix.arch }}
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-zlib make tcl
+
+      - name: Build the matching Windows CLI
+        if: matrix.cli != '' && runner.os == 'Windows'
+        shell: msys2 {0}
+        env:
+          TARGET: ${{ matrix.target }}
+          CLI: ${{ matrix.cli }}
+        run: bash scripts/build-cli.sh "$TARGET" "$CLI"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt-${{ matrix.target }}
           path: prebuilds/
-          retention-days: 1
+          if-no-files-found: error
+          retention-days: 7
 
-  publish:
-    name: Publish to npm
+  pack:
+    name: Pack npm release candidate
     needs: prebuilds
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write   # to attach prebuilds to the GitHub release
-
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
-          scope: "@dolthub"
+          node-version: "24"
 
-      - name: Download all prebuilt artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
+          pattern: prebuilt-*
           path: prebuilds/
           merge-multiple: true
 
-      - name: Install dependencies (skip build — we have prebuilts)
-        run: npm install --ignore-scripts
-
-      - name: Restore bundled CLI permissions
-        run: chmod 755 prebuilds/linux-x64/doltlite prebuilds/darwin-arm64/doltlite
-
-      - name: Smoke test npm archive
-        run: node scripts/test-package.js
-
-      - name: Verify npm publish identity
+      - name: Pack once
+        shell: bash
         run: |
-          npm config get registry
-          npm config get @dolthub:registry
-          npm whoami --registry=https://registry.npmjs.org/
-          npm access list collaborators @dolthub/doltlite --json || true
+          version=$(node -p 'require("./package.json").version')
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            test "$GITHUB_REF_NAME" = "v$version"
+          fi
+          chmod 755 prebuilds/linux-x64/doltlite prebuilds/darwin-arm64/doltlite
+          mkdir dist
+          npm pack --ignore-scripts --pack-destination dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-candidate
+          path: dist/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    name: Install candidate — ${{ matrix.target }}
+    needs: [targets, pack]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          architecture: ${{ matrix.arch }}
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-candidate
+          path: dist/
+
+      - name: Run a fresh npm consumer in Node.js and Bun
+        shell: bash
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          test "$(node -p 'process.platform + "-" + process.arch')" = "$TARGET"
+          npm run test:package -- "$PWD"/dist/*.tgz --bun
+
+  source-fallback:
+    name: Install candidate from source
+    needs: pack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-candidate
+          path: dist/
+
+      - name: Exercise the published install script without a prebuild
+        run: npm run test:package -- "$PWD"/dist/*.tgz --source
+
+  publish:
+    name: Publish tested tarball
+    needs: [verify, source-fallback]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          scope: "@dolthub"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-candidate
+          path: dist/
 
       - name: Publish to npm
-        run: |
-          if npm publish --access public; then
-            echo "Published."
-          else
-            v=$(node -p "require('./package.json').version")
-            if npm view "@dolthub/doltlite@$v" version >/dev/null 2>&1; then
-              echo "v$v is already published to npm; continuing to the GitHub release."
-            else
-              exit 1
-            fi
-          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          tarballs=(dist/*.tgz)
+          test "${#tarballs[@]}" -eq 1
+          tarball="${tarballs[0]}"
+          version=$(node -p 'require("./package.json").version')
+          spec="@dolthub/doltlite@$version"
+          expected=$(node -e 'const fs=require("node:fs"), crypto=require("node:crypto"); console.log("sha512-"+crypto.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64"))' "$tarball")
+          if ! npm publish "$tarball" --access public; then
+            test "$(npm view "$spec" dist.integrity)" = "$expected"
+          fi
+          echo "TARBALL_INTEGRITY=$expected" >> "$GITHUB_ENV"
+          echo "PACKAGE_SPEC=$spec" >> "$GITHUB_ENV"
 
-      # Rename prebuilds with platform prefix so they don't collide as GH release assets.
+      - name: Verify the public package and run a fresh consumer
+        env:
+          npm_config_fetch_retries: "0"
+        run: |
+          for _ in {1..12}; do
+            integrity=$(npm view "$PACKAGE_SPEC" dist.integrity --prefer-online 2>/dev/null || true)
+            if [[ -n "$integrity" ]]; then
+              test "$integrity" = "$TARBALL_INTEGRITY"
+              break
+            fi
+            sleep 5
+          done
+          test "$integrity" = "$TARBALL_INTEGRITY"
+          npm run test:package -- "$PACKAGE_SPEC"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: prebuilt-*
+          path: prebuilds/
+          merge-multiple: true
+
       - name: Stage release assets
         run: |
           mkdir -p release-assets
           for dir in prebuilds/*/; do
             platform=$(basename "$dir")
             cp "${dir}doltlite.node" "release-assets/doltlite-${platform}.node"
-            # Some platforms also ship the doltlite CLI binary.
             if [ -f "${dir}doltlite" ]; then
               cp "${dir}doltlite" "release-assets/doltlite-${platform}"
             fi

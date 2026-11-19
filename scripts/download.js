@@ -13,39 +13,26 @@
 const https  = require("https")
 const fs     = require("fs")
 const path   = require("path")
-const { execSync } = require("child_process")
+const { execFileSync } = require("child_process")
 
 const pkg     = require("../package.json")
 const version = pkg.version
 
-const amalgDir  = path.join(__dirname, "../amalgamation")
+const root      = path.join(__dirname, "..")
+const amalgDir  = path.join(root, "amalgamation")
 const outC      = path.join(amalgDir, "doltlite.c")
 const outH      = path.join(amalgDir, "doltlite.h")
 const versionMarker = path.join(amalgDir, ".doltlite-source-version")
 const srcRoot   = path.join(amalgDir, ".source")
 
-function normalizeVersion(v) {
-  return String(v || "").trim().replace(/^v/, "")
-}
-
 function sourceReady() {
-  if (!fs.existsSync(outC) || !fs.existsSync(outH) || !fs.existsSync(versionMarker)) return false
-  try {
-    const [sourceVersion, feature] = fs.readFileSync(versionMarker, "utf8").trim().split("\n")
-    return normalizeVersion(sourceVersion) === normalizeVersion(version) &&
-      feature === "DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE"
-  } catch (_) {
-    return false
-  }
+  const outputs = [outC, outH, versionMarker, path.join(srcRoot, "sqlite3.c"),
+    "doltlite_orig.c", "blake3_sse2_impl.c", "blake3_neon_impl.c"].map(file => path.resolve(amalgDir, file))
+  return outputs.every(file => fs.existsSync(file)) &&
+    fs.readFileSync(versionMarker, "utf8") === `v${version}\n2\n`
 }
 
-// Upstream dolthub/doltlite ships the CLI for these platform-arch pairs;
-// place the binary next to the .node addon so binPath() can return it.
-const CLI_TOOLS = {
-  "linux-x64":    { upstream: "linux-x64",  bin: "doltlite" },
-  "darwin-arm64": { upstream: "osx-arm64",  bin: "doltlite" },
-  "win32-x64":    { upstream: "win-x64",    bin: "doltlite.exe" },
-}
+const targets = require("./release-targets.json").include
 
 function download(url, dest, cb) {
   const file = fs.createWriteStream(dest)
@@ -77,7 +64,12 @@ function fetchSource(cb) {
     try {
       fs.rmSync(srcRoot, { recursive: true, force: true })
       fs.mkdirSync(srcRoot, { recursive: true })
-      execSync(`tar xzf "${tarballPath}" -C "${srcRoot}"`, { stdio: "inherit" })
+      const archive = fs.openSync(tarballPath, "r")
+      try {
+        execFileSync("tar", ["xzf", "-"], { cwd: srcRoot, stdio: [archive, "inherit", "inherit"] })
+      } finally {
+        fs.closeSync(archive)
+      }
       fs.unlinkSync(tarballPath)
 
       // The tarball nests under doltlite-autoconf-${version}/. Flatten so
@@ -90,7 +82,7 @@ function fetchSource(cb) {
         }
         fs.rmdirSync(subdir)
       }
-      execSync(`node "${path.join(__dirname, "build-amalgamation.js")}"`, { stdio: "inherit" })
+      execFileSync(process.execPath, [path.join(__dirname, "build-amalgamation.js")], { stdio: "inherit" })
       console.log("Source ready.")
       cb()
     } catch (e) {
@@ -101,13 +93,13 @@ function fetchSource(cb) {
 
 function fetchCli(cb) {
   const key = `${process.platform}-${process.arch}`
-  const meta = CLI_TOOLS[key]
-  if (!meta) {
+  const meta = targets.find(target => target.target === key)
+  if (!meta?.cli) {
     console.log(`doltlite CLI: no upstream build for ${key}, skipping`)
     return cb()
   }
   const prebuildDir = path.join(__dirname, "..", "prebuilds", key)
-  const binPath = path.join(prebuildDir, meta.bin)
+  const binPath = path.join(prebuildDir, meta.cli)
   if (fs.existsSync(binPath)) return cb()
   fs.mkdirSync(prebuildDir, { recursive: true })
 
@@ -117,7 +109,7 @@ function fetchCli(cb) {
   download(url, zipPath, (err) => {
     if (err) return cb(new Error(`Failed to download CLI: ${err.message}`))
     try {
-      execSync(`unzip -jo "${zipPath}" "*/${meta.bin}" -d "${prebuildDir}"`, { stdio: "inherit" })
+      execFileSync("unzip", ["-jo", path.basename(zipPath), `*/${meta.cli}`, "-d", `prebuilds/${key}`], { cwd: root, stdio: "inherit" })
       fs.unlinkSync(zipPath)
       if (process.platform !== "win32") fs.chmodSync(binPath, 0o755)
       cb()
@@ -132,6 +124,7 @@ fetchSource((err) => {
     console.error(err.message)
     process.exit(1)
   }
+  if (process.argv.includes("--source-only")) return
   fetchCli((cliErr) => {
     if (cliErr) {
       // Non-fatal: the addon still builds and works; binPath() will throw

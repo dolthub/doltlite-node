@@ -5,33 +5,59 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { execFileSync } = require("node:child_process")
+const pkg = require("../package.json")
+const targets = require("./release-targets.json").include
 
-const root = path.resolve(__dirname, "..")
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doltlite-package-"))
+const [spec, ...options] = process.argv.slice(2)
+const npm = process.env.npm_execpath
+assert.ok(spec && npm, "Usage: npm run test:package -- <tarball or package spec> [--source] [--bun]")
+const source = options.includes("--source")
+const bun = options.includes("--bun")
+const key = `${process.platform}-${process.arch}`
+const target = targets.find(entry => entry.target === key)
+assert.ok(source || target, `No prebuilt release target for ${key}`)
+
+const root = path.join(__dirname, "..")
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "doltlite-package-"))
+const installed = path.join(dir, "node_modules", pkg.name)
+const prebuilt = path.join(installed, "prebuilds", key, "doltlite.node")
+const compiled = path.join(installed, "build", "Release", "doltlite.node")
+
+function runNpm(args, cwd) {
+  execFileSync(process.execPath, [npm, ...args], { cwd, stdio: "inherit" })
+}
 
 try {
-  const packed = JSON.parse(execFileSync("npm", [
-    "pack", "--ignore-scripts", "--json", "--pack-destination", tmp,
-  ], { cwd: root, encoding: "utf8" }))
-  execFileSync("tar", ["xzf", path.join(tmp, packed[0].filename), "-C", tmp])
-  const packageRoot = path.join(tmp, "package")
-  for (const platform of ["linux-x64", "darwin-arm64"]) {
-    const cli = path.join(packageRoot, "prebuilds", platform, "doltlite")
-    assert.notEqual(fs.statSync(cli).mode & 0o111, 0, `${platform} CLI is not executable`)
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ private: true }))
+  const dependency = fs.existsSync(spec) ? path.resolve(spec) : spec
+  runNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", dependency], dir)
+  assert.equal(JSON.parse(fs.readFileSync(path.join(installed, "package.json"), "utf8")).version, pkg.version)
+
+  if (source) {
+    if (fs.existsSync(prebuilt)) fs.unlinkSync(prebuilt)
+    runNpm(["run", "install"], installed)
+    assert.ok(fs.existsSync(compiled), "Source install did not produce a native addon")
+  } else {
+    assert.ok(fs.existsSync(prebuilt), `Packaged addon missing for ${key}`)
+    assert.ok(!fs.existsSync(compiled), "Prebuilt package unexpectedly contains a local build")
   }
-  const { DatabaseSync, binPath } = require(packageRoot)
-  const db = new DatabaseSync(":memory:")
-  try {
-    assert.equal(db.prepare("SELECT doltlite_engine() AS engine").get().engine, "prolly")
-    db.exec("CREATE TABLE t(id INTEGER PRIMARY KEY); INSERT INTO t VALUES(1)")
-    assert.equal(db.prepare("SELECT count(*) AS n FROM t").get().n, 1)
-  } finally {
-    db.close()
+
+  const tests = ["consumer.test.cjs"]
+  fs.copyFileSync(path.join(__dirname, tests[0]), path.join(dir, tests[0]))
+  for (const filename of fs.readdirSync(path.join(root, "test"))) {
+    if (!filename.endsWith(".test.cjs")) continue
+    fs.copyFileSync(path.join(root, "test", filename), path.join(dir, filename))
+    tests.push(filename)
   }
-  assert.equal(execFileSync(binPath(), [":memory:", "SELECT doltlite_engine();"], {
-    encoding: "utf8",
-  }).trim(), "prolly")
-  console.log("npm archive: native addon and executable bundled CLIs PASS")
+
+  const env = {
+    ...process.env,
+    DOLTLITE_TEST_PACKAGE: pkg.name,
+    DOLTLITE_EXPECT_VERSION: `v${pkg.version}`,
+    DOLTLITE_EXPECT_CLI: target?.cli || "",
+  }
+  execFileSync(process.execPath, ["--test", ...tests], { cwd: dir, env, stdio: "inherit" })
+  if (bun) execFileSync("bun", ["test", ...tests], { cwd: dir, env, stdio: "inherit" })
 } finally {
-  fs.rmSync(tmp, { recursive: true, force: true })
+  fs.rmSync(dir, { recursive: true, force: true })
 }
