@@ -18,7 +18,8 @@ const { execFileSync } = require("child_process")
 const pkg     = require("../package.json")
 const version = pkg.version
 
-const amalgDir  = path.join(__dirname, "../amalgamation")
+const root      = path.join(__dirname, "..")
+const amalgDir  = path.join(root, "amalgamation")
 const outC      = path.join(amalgDir, "doltlite.c")
 const outH      = path.join(amalgDir, "doltlite.h")
 const versionMarker = path.join(amalgDir, ".doltlite-source-version")
@@ -63,7 +64,12 @@ function fetchSource(cb) {
     try {
       fs.rmSync(srcRoot, { recursive: true, force: true })
       fs.mkdirSync(srcRoot, { recursive: true })
-      execFileSync("tar", ["xzf", tarballPath, "-C", srcRoot], { stdio: "inherit" })
+      const archive = fs.openSync(tarballPath, "r")
+      try {
+        execFileSync("tar", ["xzf", "-"], { cwd: srcRoot, stdio: [archive, "inherit", "inherit"] })
+      } finally {
+        fs.closeSync(archive)
+      }
       fs.unlinkSync(tarballPath)
 
       // The tarball nests under doltlite-autoconf-${version}/. Flatten so
@@ -103,7 +109,7 @@ function fetchCli(cb) {
   download(url, zipPath, (err) => {
     if (err) return cb(new Error(`Failed to download CLI: ${err.message}`))
     try {
-      execFileSync("unzip", ["-jo", zipPath, `*/${meta.cli}`, "-d", prebuildDir], { stdio: "inherit" })
+      execFileSync("unzip", ["-jo", path.basename(zipPath), `*/${meta.cli}`, "-d", `prebuilds/${key}`], { cwd: root, stdio: "inherit" })
       fs.unlinkSync(zipPath)
       if (process.platform !== "win32") fs.chmodSync(binPath, 0o755)
       cb()
