@@ -31,10 +31,10 @@ describe("released amalgamation preparation", () => {
     const source = readFileSync(sourcePath, "utf8")
     const output = readFileSync(outputPath, "utf8")
 
-    if (source.includes("DOLTLITE_AMALGAMATION_WINSOCK2_EARLY")) {
-      expect(output).toBe(source)
-    } else {
-      expect(output).toContain("DOLTLITE_NODE_WINSOCK2_EARLY_FALLBACK")
-    }
+    const winsockFixed = source.includes("DOLTLITE_AMALGAMATION_WINSOCK2_EARLY")
+    const hasMergeSubtype = source.includes("DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE")
+    if (winsockFixed && hasMergeSubtype) expect(output).toBe(source)
+    if (!winsockFixed) expect(output).toContain("DOLTLITE_NODE_WINSOCK2_EARLY_FALLBACK")
+    expect(output).toContain("DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE")
   })
 })

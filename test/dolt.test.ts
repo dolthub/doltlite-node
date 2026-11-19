@@ -210,11 +210,85 @@ describe("doltMerge()", () => {
     db.doltCommit("feat commit")
     db.doltCheckout("main")
     const result = db.doltMerge("feat")
-    // Read values before toMatchObject (bun mutates the received object with matchers)
-    const ffVal = result.fast_forward
-    const cfVal = result.conflicts
-    expect(ffVal).toEqual(expect.any(Number))
-    expect(cfVal).toBe(0)
+    expect(result.fast_forward).toBe(1)
+    expect(result.conflicts).toBe(0)
+    expect(db.prepare("SELECT dolt_hashof('HEAD') AS hash").get()).toEqual(
+      db.prepare("SELECT dolt_hashof('feat') AS hash").get()
+    )
+    expect(db.doltMerge("feat").fast_forward).toBe(0)
+  })
+
+  test("reports a three-way merge and preserves its message", () => {
+    db.doltBranch("editor's-take")
+    db.doltCheckout("editor's-take")
+    db.exec("INSERT INTO items VALUES (1, 'theirs')")
+    db.doltCommit("their edit")
+    db.doltCheckout("main")
+    db.exec("INSERT INTO items VALUES (2, 'ours')")
+    db.doltCommit("our edit")
+
+    const result = db.doltMerge("editor's-take")
+    expect(result.fast_forward).toBe(0)
+    expect(result.conflicts).toBe(0)
+    expect(db.doltLog({ limit: 1 })[0]?.message).toBe("Merge branch 'editor's-take' into main")
+    expect(db.prepare("SELECT id FROM items ORDER BY id").all()).toEqual([{ id: 1 }, { id: 2 }])
+  })
+
+  test("reports a fast-forward to an existing merge commit", () => {
+    db.doltBranch("behind")
+    db.doltBranch("side")
+    db.doltCheckout("side")
+    db.exec("INSERT INTO items VALUES (1, 'side')")
+    db.doltCommit("side edit")
+    db.doltCheckout("main")
+    db.exec("INSERT INTO items VALUES (2, 'main')")
+    db.doltCommit("main edit")
+    db.doltMerge("side")
+    const merged = db.prepare("SELECT dolt_hashof('HEAD') AS hash").get()
+
+    db.doltCheckout("behind")
+    expect(db.doltMerge("main").fast_forward).toBe(1)
+    expect(db.prepare("SELECT dolt_hashof('HEAD') AS hash").get()).toEqual(merged)
+  })
+
+  test("merges the exact tag when a differently cased branch also exists", () => {
+    db.doltTag("topic")
+    db.doltBranch("Topic")
+    db.doltCheckout("Topic")
+    db.exec("INSERT INTO items VALUES (1, 'branch only')")
+    db.doltCommit("branch edit")
+    db.doltCheckout("main")
+
+    const before = db.prepare("SELECT dolt_hashof('HEAD') AS hash").get()
+    expect(db.doltMerge("topic").fast_forward).toBe(0)
+    expect(db.prepare("SELECT dolt_hashof('HEAD') AS hash").get()).toEqual(before)
+    expect(db.prepare("SELECT id FROM items").all()).toEqual([])
+  })
+
+  test("preserves the source ref for a conflicted merge", () => {
+    db.exec("INSERT INTO items VALUES (1, 'base')")
+    db.doltCommit("base row")
+    db.doltBranch("Topic")
+    db.doltCheckout("Topic")
+    db.exec("UPDATE items SET value = 'theirs' WHERE id = 1")
+    const source = db.doltCommit("their edit")
+    db.doltCheckout("main")
+    db.exec("UPDATE items SET value = 'ours' WHERE id = 1")
+    db.doltCommit("our edit")
+
+    expect(() => db.doltMerge("Topic")).toThrow(/autocommit transaction rolled back/)
+    expect(db.inTransaction).toBe(false)
+
+    db.exec("BEGIN")
+    try {
+      expect(() => db.doltMerge("Topic")).toThrow(/Merge has 1 conflict/)
+      expect(db.prepare("SELECT source, source_commit FROM dolt_merge_status").get()).toEqual({
+        source: "Topic",
+        source_commit: source,
+      })
+    } finally {
+      db.exec("ROLLBACK")
+    }
   })
 
   test("merged data is visible on main after merge", () => {
