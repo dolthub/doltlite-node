@@ -33,7 +33,10 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run tests
+      - name: Test native regressions in Node.js
+        run: node --expose-gc --test test/native.test.cjs
+
+      - name: Run tests in Bun
         run: bun test test/
 
   release-windows:
@@ -60,5 +63,8 @@ jobs:
       - name: Build with the publishing toolchain
         run: npx node-gyp rebuild
 
-      - name: Run tests
+      - name: Test native regressions in Node.js
+        run: node --expose-gc --test test/native.test.cjs
+
+      - name: Run tests in Bun
         run: bun test test/
