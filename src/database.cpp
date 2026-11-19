@@ -46,27 +46,24 @@ Database::Database(const Napi::CallbackInfo& info) : Napi::ObjectWrap<Database>(
   flags |= SQLITE_OPEN_URI;
 
   std::string openPath = SqliteOpenPath(path);
-  int rc = sqlite3_open_v2(openPath.c_str(), &db_, flags, nullptr);
+  int rc = sqlite3_open_v2(openPath.c_str(), &connection_->db, flags, nullptr);
   if (rc != SQLITE_OK) {
-    std::string msg = db_ ? sqlite3_errmsg(db_) : "Failed to open database";
-    if (db_) { sqlite3_close(db_); db_ = nullptr; }
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    auto error = SQLiteError(env, Handle(), rc, "open");
+    sqlite3_close(Handle());
+    connection_->db = nullptr;
+    error.ThrowAsJavaScriptException();
     return;
   }
   if (path != ":memory:") path_ = path;
 
-  sqlite3_busy_timeout(db_, 5000);
-  sqlite3_exec(db_, "PRAGMA foreign_keys = ON", nullptr, nullptr, nullptr);
+  sqlite3_busy_timeout(Handle(), 5000);
+  sqlite3_exec(Handle(), "PRAGMA foreign_keys = ON", nullptr, nullptr, nullptr);
   if (readOnly) {
     // pager_shim.c doesn't enforce SQLITE_OPEN_READONLY; use query_only pragma instead.
-    sqlite3_exec(db_, "PRAGMA query_only = ON", nullptr, nullptr, nullptr);
+    sqlite3_exec(Handle(), "PRAGMA query_only = ON", nullptr, nullptr, nullptr);
   } else {
-    sqlite3_exec(db_, "PRAGMA journal_mode = WAL", nullptr, nullptr, nullptr);
+    sqlite3_exec(Handle(), "PRAGMA journal_mode = WAL", nullptr, nullptr, nullptr);
   }
-}
-
-Database::~Database() {
-  if (db_) { sqlite3_close_v2(db_); db_ = nullptr; }
 }
 
 // ── node:sqlite-compatible API ───────────────────────────────────────────────
@@ -74,83 +71,92 @@ Database::~Database() {
 Napi::Value Database::Open(const Napi::CallbackInfo& info) {
   // No-op if already open; re-open if closed (matches node:sqlite behaviour)
   Napi::Env env = info.Env();
-  if (db_) return env.Undefined();
+  if (Handle()) return env.Undefined();
   if (info.Length() < 1 || !info[0].IsString()) {
     Napi::TypeError::New(env, "Path required").ThrowAsJavaScriptException();
     return env.Undefined();
   }
   std::string path = info[0].As<Napi::String>().Utf8Value();
   std::string openPath = SqliteOpenPath(path);
-  int rc = sqlite3_open_v2(openPath.c_str(), &db_,
+  int rc = sqlite3_open_v2(openPath.c_str(), &connection_->db,
                            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_URI,
                            nullptr);
   if (rc != SQLITE_OK) {
-    std::string msg = db_ ? sqlite3_errmsg(db_) : "Failed to open database";
-    if (db_) { sqlite3_close(db_); db_ = nullptr; }
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    auto error = SQLiteError(env, Handle(), rc, "open");
+    sqlite3_close(Handle());
+    connection_->db = nullptr;
+    error.ThrowAsJavaScriptException();
   }
   if (rc == SQLITE_OK && path != ":memory:") path_ = path;
   return env.Undefined();
 }
 
 Napi::Value Database::Close(const Napi::CallbackInfo& info) {
-  if (db_) { sqlite3_close_v2(db_); db_ = nullptr; }
+  Napi::Env env = info.Env();
+  if (connection_->activeStatements != 0) {
+    Napi::Error::New(env, "Cannot close the database while a statement is executing").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  auto& statements = connection_->statements;
+  while (!statements.empty()) (*statements.begin())->Finalize();
+  sqlite3_close_v2(Handle());
+  connection_->db = nullptr;
   path_.clear();
-  return info.Env().Undefined();
+  return env.Undefined();
 }
 
 Napi::Value Database::Exec(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   if (info.Length() < 1 || !info[0].IsString()) {
     Napi::TypeError::New(env, "SQL must be a string").ThrowAsJavaScriptException();
     return env.Undefined();
   }
   std::string sql = info[0].As<Napi::String>().Utf8Value();
   char* errmsg = nullptr;
-  int rc = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &errmsg);
+  int rc = sqlite3_exec(Handle(), sql.c_str(), nullptr, nullptr, &errmsg);
   if (rc != SQLITE_OK) {
-    std::string msg = errmsg ? errmsg : "exec failed";
+    auto error = SQLiteError(env, Handle(), rc, "exec", errmsg);
     sqlite3_free(errmsg);
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    error.ThrowAsJavaScriptException();
   }
   return env.Undefined();
 }
 
 Napi::Value Database::Prepare(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   if (info.Length() < 1 || !info[0].IsString()) {
     Napi::TypeError::New(env, "SQL must be a string").ThrowAsJavaScriptException();
     return env.Undefined();
   }
   std::string sql = info[0].As<Napi::String>().Utf8Value();
   sqlite3_stmt* stmt = nullptr;
-  int rc = sqlite3_prepare_v2(db_, sql.c_str(), (int)sql.size(), &stmt, nullptr);
-  if (rc != SQLITE_OK) { ThrowSQLiteError(env, db_, "prepare"); return env.Undefined(); }
-  return Statement::Create(env, this, stmt);
+  int rc = sqlite3_prepare_v2(Handle(), sql.c_str(), (int)sql.size(), &stmt, nullptr);
+  if (rc != SQLITE_OK) { SQLiteError(env, Handle(), rc, "prepare").ThrowAsJavaScriptException(); return env.Undefined(); }
+  return Statement::Create(env, connection_, stmt);
 }
 
 Napi::Value Database::IsOpenGetter(const Napi::CallbackInfo& info) {
-  return Napi::Boolean::New(info.Env(), db_ != nullptr);
+  return Napi::Boolean::New(info.Env(), Handle() != nullptr);
 }
 
 Napi::Value Database::IsTransactionGetter(const Napi::CallbackInfo& info) {
-  return Napi::Boolean::New(info.Env(), db_ && sqlite3_get_autocommit(db_) == 0);
+  return Napi::Boolean::New(info.Env(), Handle() && sqlite3_get_autocommit(Handle()) == 0);
 }
 
 Napi::Value Database::Location(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) return env.Null();
+  if (!Handle()) return env.Null();
   if (!path_.empty()) return Napi::String::New(env, path_);
-  const char* loc = sqlite3_db_filename(db_, "main");
+  const char* loc = sqlite3_db_filename(Handle(), "main");
   if (!loc || loc[0] == '\0' || strcmp(loc, ":memory:") == 0) return env.Null();
   return Napi::String::New(env, loc);
 }
 
 Napi::Value Database::CreateFunction(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   if (info.Length() < 2 || !info[0].IsString() || !info[1].IsFunction()) {
     Napi::TypeError::New(env, "createFunction(name, fn)").ThrowAsJavaScriptException();
     return env.Undefined();
@@ -167,37 +173,42 @@ Napi::Value Database::CreateFunction(const Napi::CallbackInfo& info) {
 Napi::Array Database::ExecQuery(Napi::Env env, const std::string& sql,
                                 const std::vector<std::string>& params) {
   auto result = Napi::Array::New(env);
-  if (!db_) return result;
+  if (!Handle()) return result;
   sqlite3_stmt* stmt = nullptr;
-  if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-    ThrowSQLiteError(env, db_, sql.c_str()); return result;
+  int rc = sqlite3_prepare_v2(Handle(), sql.c_str(), -1, &stmt, nullptr);
+  if (rc != SQLITE_OK) {
+    SQLiteError(env, Handle(), rc, sql.c_str()).ThrowAsJavaScriptException();
+    return result;
   }
   for (int i = 0; i < (int)params.size(); i++)
     sqlite3_bind_text(stmt, i + 1, params[i].c_str(), -1, SQLITE_TRANSIENT);
+  DatabaseConnection::StatementUse use(*connection_);
   uint32_t idx = 0;
-  int rc;
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW)
     result.Set(idx++, RowToObject(env, stmt));
+  if (rc != SQLITE_DONE) SQLiteError(env, Handle(), rc, sql.c_str()).ThrowAsJavaScriptException();
   sqlite3_finalize(stmt);
   return result;
 }
 
 std::string Database::ExecScalar(Napi::Env env, const std::string& sql,
                                  const std::vector<std::string>& params) {
-  if (!db_) return "";
+  if (!Handle()) return "";
   sqlite3_stmt* stmt = nullptr;
-  if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-    ThrowSQLiteError(env, db_, sql.c_str()); return "";
+  int rc = sqlite3_prepare_v2(Handle(), sql.c_str(), -1, &stmt, nullptr);
+  if (rc != SQLITE_OK) {
+    SQLiteError(env, Handle(), rc, sql.c_str()).ThrowAsJavaScriptException();
+    return "";
   }
   for (int i = 0; i < (int)params.size(); i++)
     sqlite3_bind_text(stmt, i + 1, params[i].c_str(), -1, SQLITE_TRANSIENT);
   std::string out;
-  int rc = sqlite3_step(stmt);
+  rc = sqlite3_step(stmt);
   if (rc == SQLITE_ROW) {
     const char* t = (const char*)sqlite3_column_text(stmt, 0);
     if (t) out = t;
   } else if (rc != SQLITE_DONE) {
-    ThrowSQLiteError(env, db_, sql.c_str());
+    SQLiteError(env, Handle(), rc, sql.c_str()).ThrowAsJavaScriptException();
   }
   sqlite3_finalize(stmt);
   return out;
@@ -207,7 +218,7 @@ std::string Database::ExecScalar(Napi::Env env, const std::string& sql,
 
 Napi::Value Database::DoltCommit(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   std::string msg = info.Length() > 0 && info[0].IsString()
     ? info[0].As<Napi::String>().Utf8Value() : "";
   // Stage all tables (-A) then commit with message (-m).
@@ -218,7 +229,7 @@ Napi::Value Database::DoltCommit(const Napi::CallbackInfo& info) {
 
 Napi::Value Database::DoltBranch(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   if (info.Length() < 1 || !info[0].IsString()) {
     Napi::TypeError::New(env, "branch name required").ThrowAsJavaScriptException();
     return env.Undefined();
@@ -236,7 +247,7 @@ Napi::Value Database::DoltBranch(const Napi::CallbackInfo& info) {
 
 Napi::Value Database::DoltCheckout(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   if (info.Length() < 1 || !info[0].IsString()) {
     Napi::TypeError::New(env, "branch name required").ThrowAsJavaScriptException();
     return env.Undefined();
@@ -248,7 +259,7 @@ Napi::Value Database::DoltCheckout(const Napi::CallbackInfo& info) {
 
 Napi::Value Database::DoltMerge(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   if (info.Length() < 1 || !info[0].IsString()) {
     Napi::TypeError::New(env, "branch name required").ThrowAsJavaScriptException();
     return env.Undefined();
@@ -268,7 +279,7 @@ Napi::Value Database::DoltMerge(const Napi::CallbackInfo& info) {
 
 Napi::Value Database::DoltReset(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   bool hard = info.Length() > 0 && info[0].IsString() &&
               info[0].As<Napi::String>().Utf8Value() == "--hard";
   ExecScalar(env, hard ? "SELECT dolt_reset('--hard')" : "SELECT dolt_reset()", {});
@@ -305,7 +316,7 @@ Napi::Value Database::DoltActiveBranch(const Napi::CallbackInfo& info) {
 
 Napi::Value Database::DoltAdd(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   // dolt_add() with no args stages all tables; with a table name stages that table.
   if (info.Length() > 0 && info[0].IsString()) {
     std::string tbl = info[0].As<Napi::String>().Utf8Value();
@@ -345,7 +356,7 @@ Napi::Value Database::DoltVersion(const Napi::CallbackInfo& info) {
 
 Napi::Value Database::DoltTag(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   if (info.Length() < 1 || !info[0].IsString()) {
     Napi::TypeError::New(env, "tag name required").ThrowAsJavaScriptException();
     return env.Undefined();
@@ -382,7 +393,7 @@ Napi::Value Database::DoltBlameOf(const Napi::CallbackInfo& info) {
 
 Napi::Value Database::DoltCherryPick(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   if (info.Length() < 1 || !info[0].IsString()) {
     Napi::TypeError::New(env, "commit hash required").ThrowAsJavaScriptException();
     return env.Undefined();
@@ -394,7 +405,7 @@ Napi::Value Database::DoltCherryPick(const Napi::CallbackInfo& info) {
 
 Napi::Value Database::DoltRevert(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (!db_) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
+  if (!Handle()) { Napi::Error::New(env, "Database is closed").ThrowAsJavaScriptException(); return env.Undefined(); }
   std::string ref = info.Length() > 0 && info[0].IsString()
     ? info[0].As<Napi::String>().Utf8Value() : "HEAD";
   ExecScalar(env, "SELECT dolt_revert(?)", {ref});

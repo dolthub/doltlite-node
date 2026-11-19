@@ -1,19 +1,39 @@
 #pragma once
 #include <napi.h>
 #include "doltlite.h"
+#include <memory>
 #include <string>
+#include <unordered_set>
+
+class Statement;
+
+struct DatabaseConnection {
+  ~DatabaseConnection() { sqlite3_close_v2(db); }
+
+  class StatementUse {
+  public:
+    explicit StatementUse(DatabaseConnection& connection) : connection_(connection) {
+      ++connection_.activeStatements;
+    }
+    ~StatementUse() { --connection_.activeStatements; }
+
+  private:
+    DatabaseConnection& connection_;
+  };
+
+  sqlite3* db = nullptr;
+  std::unordered_set<Statement*> statements;
+  unsigned activeStatements = 0;
+};
 
 class Database : public Napi::ObjectWrap<Database> {
 public:
   static Napi::Object Init(Napi::Env env, Napi::Object exports);
   explicit Database(const Napi::CallbackInfo& info);
-  ~Database();
-
-  sqlite3* Handle() { return db_; }
-  bool IsOpen() const { return db_ != nullptr; }
 
 private:
-  sqlite3* db_ = nullptr;
+  sqlite3* Handle() const { return connection_->db; }
+  std::shared_ptr<DatabaseConnection> connection_ = std::make_shared<DatabaseConnection>();
   std::string path_;
 
   // node:sqlite-compatible methods

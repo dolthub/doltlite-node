@@ -1,8 +1,9 @@
 #pragma once
+#include <memory>
 #include <napi.h>
 #include "doltlite.h"
 
-class Database;
+struct DatabaseConnection;
 
 class Statement : public Napi::ObjectWrap<Statement> {
 public:
@@ -10,11 +11,15 @@ public:
   Statement(const Napi::CallbackInfo& info);
   ~Statement();
 
-  static Napi::Object Create(Napi::Env env, Database* db, sqlite3_stmt* stmt);
+  static Napi::Object Create(Napi::Env env, const std::shared_ptr<DatabaseConnection>& connection,
+                             sqlite3_stmt* stmt);
 
 private:
+  friend class Database;
+  void Finalize();
+
   sqlite3_stmt* stmt_ = nullptr;
-  Database* db_ = nullptr;
+  std::shared_ptr<DatabaseConnection> connection_;
   std::string source_;
   uint64_t generation_ = 0;
   bool returnArrays_ = false;

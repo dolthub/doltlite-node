@@ -16,12 +16,20 @@ Napi::FunctionReference& Statement::GetConstructor(Napi::Env env) {
 
 // ── Factory (called from Database::Prepare) ──────────────────────────────────
 
-Napi::Object Statement::Create(Napi::Env env, Database* db, sqlite3_stmt* stmt) {
+Napi::Object Statement::Create(Napi::Env env, const std::shared_ptr<DatabaseConnection>& connection,
+                               sqlite3_stmt* stmt) {
   auto obj = GetConstructor(env).New({});
-  auto* self = Napi::ObjectWrap<Statement>::Unwrap(obj);
-  self->db_ = db;
-  self->stmt_ = stmt;
-  self->source_ = sqlite3_sql(stmt) ? sqlite3_sql(stmt) : "";
+  if (obj.IsEmpty()) {
+    sqlite3_finalize(stmt);
+    return obj;
+  }
+  if (stmt) {
+    auto* self = Napi::ObjectWrap<Statement>::Unwrap(obj);
+    self->connection_ = connection;
+    self->stmt_ = stmt;
+    self->source_ = sqlite3_sql(stmt);
+    connection->statements.insert(self);
+  }
   return obj;
 }
 
@@ -31,7 +39,15 @@ Statement::Statement(const Napi::CallbackInfo& info)
     : Napi::ObjectWrap<Statement>(info) {}
 
 Statement::~Statement() {
-  if (stmt_) { sqlite3_finalize(stmt_); stmt_ = nullptr; }
+  Finalize();
+}
+
+void Statement::Finalize() {
+  if (!stmt_) return;
+  sqlite3_finalize(stmt_);
+  stmt_ = nullptr;
+  connection_->statements.erase(this);
+  connection_.reset();
 }
 
 // ── run() → {changes, lastInsertRowid} ───────────────────────────────────────
@@ -39,22 +55,25 @@ Statement::~Statement() {
 Napi::Value Statement::Run(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
+  DatabaseConnection::StatementUse use(*connection_);
   ++generation_;
   sqlite3_reset(stmt_);
   if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
                 allowUnknownNamedParameters_)) return env.Undefined();
 
   int rc = sqlite3_step(stmt_);
+  if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+    auto error = SQLiteError(env, connection_->db, rc, "run");
+    sqlite3_reset(stmt_);
+    error.ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
   sqlite3_reset(stmt_);
 
-  if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
-    ThrowSQLiteError(env, db_->Handle(), "run"); return env.Undefined();
-  }
-
   auto result = Napi::Object::New(env);
-  result.Set("changes", Napi::Number::New(env, sqlite3_changes(db_->Handle())));
+  result.Set("changes", Napi::Number::New(env, sqlite3_changes(connection_->db)));
   result.Set("lastInsertRowid",
-             Napi::Number::New(env, (double)sqlite3_last_insert_rowid(db_->Handle())));
+             Napi::Number::New(env, (double)sqlite3_last_insert_rowid(connection_->db)));
   return result;
 }
 
@@ -63,6 +82,7 @@ Napi::Value Statement::Run(const Napi::CallbackInfo& info) {
 Napi::Value Statement::Get(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
+  DatabaseConnection::StatementUse use(*connection_);
   ++generation_;
   sqlite3_reset(stmt_);
   if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
@@ -74,7 +94,7 @@ Napi::Value Statement::Get(const Napi::CallbackInfo& info) {
     result = returnArrays_ ? (Napi::Value)RowToArray(env, stmt_, readBigInts_)
                            : (Napi::Value)RowToObject(env, stmt_, readBigInts_);
   }
-  else if (rc != SQLITE_DONE) ThrowSQLiteError(env, db_->Handle(), "get");
+  else if (rc != SQLITE_DONE) SQLiteError(env, connection_->db, rc, "get").ThrowAsJavaScriptException();
   sqlite3_reset(stmt_);
   return result;
 }
@@ -84,6 +104,7 @@ Napi::Value Statement::Get(const Napi::CallbackInfo& info) {
 Napi::Value Statement::All(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
+  DatabaseConnection::StatementUse use(*connection_);
   ++generation_;
   sqlite3_reset(stmt_);
   if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
@@ -95,8 +116,8 @@ Napi::Value Statement::All(const Napi::CallbackInfo& info) {
   while ((rc = sqlite3_step(stmt_)) == SQLITE_ROW)
     result.Set(idx++, returnArrays_ ? (Napi::Value)RowToArray(env, stmt_, readBigInts_)
                                     : (Napi::Value)RowToObject(env, stmt_, readBigInts_));
+  if (rc != SQLITE_DONE) SQLiteError(env, connection_->db, rc, "all").ThrowAsJavaScriptException();
   sqlite3_reset(stmt_);
-  if (rc != SQLITE_DONE) ThrowSQLiteError(env, db_->Handle(), "all");
   return result;
 }
 
@@ -130,6 +151,7 @@ Napi::Value Statement::SetAllowUnknownNamedParameters(const Napi::CallbackInfo& 
 Napi::Value Statement::Iterate(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
+  DatabaseConnection::StatementUse use(*connection_);
   uint64_t generation = ++generation_;
   sqlite3_reset(stmt_);
   if (!BindArgs(env, stmt_, info, 0, allowBareNamedParameters_,
@@ -160,6 +182,7 @@ Napi::Value Statement::Iterate(const Napi::CallbackInfo& info) {
       Napi::Error::New(e, "Statement is finalised").ThrowAsJavaScriptException();
       return e.Undefined();
     }
+    DatabaseConnection::StatementUse use(*connection_);
     int rc = sqlite3_step(stmt_);
     if (rc == SQLITE_ROW) {
       Napi::Value row = returnArrays_ ? (Napi::Value)RowToArray(e, stmt_, readBigInts_)
@@ -168,7 +191,7 @@ Napi::Value Statement::Iterate(const Napi::CallbackInfo& info) {
     }
     *done = true;
     if (rc != SQLITE_DONE) {
-      ThrowSQLiteError(e, db_->Handle(), "iterate");
+      SQLiteError(e, connection_->db, rc, "iterate").ThrowAsJavaScriptException();
       sqlite3_reset(stmt_);
       return e.Undefined();
     }
@@ -198,6 +221,7 @@ Napi::Value Statement::Iterate(const Napi::CallbackInfo& info) {
 Napi::Value Statement::Columns(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!stmt_) { Napi::Error::New(env, "Statement is finalised").ThrowAsJavaScriptException(); return env.Undefined(); }
+  DatabaseConnection::StatementUse use(*connection_);
   int n = sqlite3_column_count(stmt_);
   auto result = Napi::Array::New(env, n);
   for (int i = 0; i < n; i++) {
