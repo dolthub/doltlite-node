@@ -14,6 +14,13 @@
  */
 export function binPath(): string
 
+export interface SQLiteError extends Error {
+  code: "ERR_SQLITE_ERROR"
+  errcode: number
+  errstr: string
+  operation: string
+}
+
 export interface ColumnInfo {
   name: string | null
   column: string | null
