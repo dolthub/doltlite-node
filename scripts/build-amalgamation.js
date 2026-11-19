@@ -29,6 +29,11 @@ if (!fs.existsSync(inH)) {
 }
 
 console.log("Preparing released doltlite amalgamation...")
+const sourceVersion = fs.readFileSync(path.join(srcRoot, ".dolt_release_version"), "utf8").trim()
+if (sourceVersion !== `v${pkg.version}`) {
+  throw new Error(`Engine archive is ${sourceVersion}, expected v${pkg.version}`)
+}
+
 fs.mkdirSync(outDir, { recursive: true })
 let amalgamation = fs.readFileSync(inC, "utf8")
 
@@ -73,9 +78,15 @@ if (!amalgamation.includes("DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE")) {
   ].join("\n"))
   amalgamation = "#define DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE 'F'\n" + amalgamation
 }
+const versionDefine = /^# define DOLTLITE_VERSION "([^"]+)"$/m
+const embeddedVersion = amalgamation.match(versionDefine)?.[1]
+if (embeddedVersion === "doltlite-amalgamation") {
+  amalgamation = amalgamation.replace(versionDefine, `# define DOLTLITE_VERSION ${JSON.stringify(sourceVersion)}`)
+} else if (embeddedVersion !== sourceVersion) {
+  throw new Error(`Amalgamation engine version is ${embeddedVersion}, expected ${sourceVersion}`)
+}
 fs.writeFileSync(outC, amalgamation)
 fs.copyFileSync(inH, outH)
-fs.writeFileSync(versionMarker, `${pkg.version}\nDOLTLITE_MERGE_FAST_FORWARD_SUBTYPE\n`)
 
 // Kept for binding.gyp compatibility. DoltLite release amalgamations are now
 // self-contained and include the prefixed original SQLite implementation.
@@ -114,4 +125,5 @@ for (const [wrapName, srcName, archGuard] of simdWrappers) {
   console.log(`SIMD wrapper ${wrapName} written`)
 }
 
+fs.writeFileSync(versionMarker, `${sourceVersion}\n2\n`)
 console.log(`Amalgamation written to ${outC}`)

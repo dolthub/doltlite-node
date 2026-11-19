@@ -1,0 +1,9 @@
+{
+  "include": [
+    { "target": "linux-x64", "runner": "ubuntu-24.04", "arch": "x64", "upstream": "linux-x64", "cli": "doltlite" },
+    { "target": "linux-arm64", "runner": "ubuntu-24.04-arm", "arch": "arm64" },
+    { "target": "darwin-x64", "runner": "macos-15-intel", "arch": "x64" },
+    { "target": "darwin-arm64", "runner": "macos-15", "arch": "arm64", "upstream": "osx-arm64", "cli": "doltlite" },
+    { "target": "win32-x64", "runner": "windows-2025-vs2026", "arch": "x64", "upstream": "win-x64", "cli": "doltlite.exe" }
+  ]
+}

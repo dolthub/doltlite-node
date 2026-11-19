@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "fs"
 import { join } from "path"
 
 const sourcePath = join(import.meta.dir, "..", "amalgamation", ".source", "sqlite3.c")
+const version = require("../package.json").version
 const outputPath = join(import.meta.dir, "..", "amalgamation", "doltlite.c")
 
 describe("released amalgamation preparation", () => {
@@ -27,13 +28,17 @@ describe("released amalgamation preparation", () => {
     expect(winsock).toBeLessThan(windows)
   })
 
-  test("uses an unmodified fixed release amalgamation", () => {
+  test("stamps the release version and preserves the rest of a fixed amalgamation", () => {
     const source = readFileSync(sourcePath, "utf8")
     const output = readFileSync(outputPath, "utf8")
 
     const winsockFixed = source.includes("DOLTLITE_AMALGAMATION_WINSOCK2_EARLY")
     const hasMergeSubtype = source.includes("DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE")
-    if (winsockFixed && hasMergeSubtype) expect(output).toBe(source)
+    const versionDefine = `# define DOLTLITE_VERSION "v${version}"`
+    expect(output).toContain(versionDefine)
+    if (winsockFixed && hasMergeSubtype) {
+      expect(output).toBe(source.replace('# define DOLTLITE_VERSION "doltlite-amalgamation"', versionDefine))
+    }
     if (!winsockFixed) expect(output).toContain("DOLTLITE_NODE_WINSOCK2_EARLY_FALLBACK")
     expect(output).toContain("DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE")
   })
