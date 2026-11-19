@@ -27,7 +27,7 @@ Napi::Object Statement::Create(Napi::Env env, const std::shared_ptr<DatabaseConn
     auto* self = Napi::ObjectWrap<Statement>::Unwrap(obj);
     self->connection_ = connection;
     self->stmt_ = stmt;
-    self->source_ = sqlite3_sql(stmt);
+    if (const char* source = sqlite3_sql(stmt)) self->source_ = source;
     connection->statements.insert(self);
   }
   return obj;
@@ -39,10 +39,10 @@ Statement::Statement(const Napi::CallbackInfo& info)
     : Napi::ObjectWrap<Statement>(info) {}
 
 Statement::~Statement() {
-  Finalize();
+  FinalizeStatement();
 }
 
-void Statement::Finalize() {
+void Statement::FinalizeStatement() {
   if (!stmt_) return;
   sqlite3_finalize(stmt_);
   stmt_ = nullptr;

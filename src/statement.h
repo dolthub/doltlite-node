@@ -16,7 +16,7 @@ public:
 
 private:
   friend class Database;
-  void Finalize();
+  void FinalizeStatement();
 
   sqlite3_stmt* stmt_ = nullptr;
   std::shared_ptr<DatabaseConnection> connection_;

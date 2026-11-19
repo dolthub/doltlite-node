@@ -98,7 +98,7 @@ Napi::Value Database::Close(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
   auto& statements = connection_->statements;
-  while (!statements.empty()) (*statements.begin())->Finalize();
+  while (!statements.empty()) (*statements.begin())->FinalizeStatement();
   sqlite3_close_v2(Handle());
   connection_->db = nullptr;
   path_.clear();
