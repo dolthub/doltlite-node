@@ -31,8 +31,9 @@ function normalizeVersion(v) {
 function sourceReady() {
   if (!fs.existsSync(outC) || !fs.existsSync(outH) || !fs.existsSync(versionMarker)) return false
   try {
-    const marker = fs.readFileSync(versionMarker, "utf8")
-    return normalizeVersion(marker) === normalizeVersion(version)
+    const [sourceVersion, feature] = fs.readFileSync(versionMarker, "utf8").trim().split("\n")
+    return normalizeVersion(sourceVersion) === normalizeVersion(version) &&
+      feature === "DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE"
   } catch (_) {
     return false
   }

@@ -254,15 +254,13 @@ Napi::Value Database::DoltMerge(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
   std::string branch = info[0].As<Napi::String>().Utf8Value();
-  // dolt_merge is a scalar function returning the merge commit hash (or NULL on conflict).
-  ExecScalar(env, "SELECT dolt_merge(?)", {branch});
+  std::string fastForward = ExecScalar(env,
+    "SELECT subtype(dolt_merge(?)) = unicode('F')", {branch});
   if (env.IsExceptionPending()) return env.Undefined();
-  // Derive fast_forward and conflicts from post-merge state.
   std::string nConflicts = ExecScalar(env, "SELECT COUNT(*) FROM dolt_conflicts", {});
-  std::string logLen = ExecScalar(env,
-    "SELECT COUNT(*) FROM dolt_log LIMIT 2", {});
+  if (env.IsExceptionPending()) return env.Undefined();
   auto result = Napi::Object::New(env);
-  result.Set("fast_forward", Napi::Number::New(env, 0));
+  result.Set("fast_forward", Napi::Number::New(env, fastForward == "1" ? 1 : 0));
   result.Set("conflicts",    Napi::Number::New(env,
     (double)std::stoi(nConflicts.empty() ? "0" : nConflicts)));
   return result;

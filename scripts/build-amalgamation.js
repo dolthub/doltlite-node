@@ -44,9 +44,38 @@ if (!amalgamation.includes("DOLTLITE_AMALGAMATION_WINSOCK2_EARLY")) {
 
 ${amalgamation}`
 }
+if (!amalgamation.includes("DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE")) {
+  function replaceOnce(from, to) {
+    const i = amalgamation.indexOf(from)
+    if (i < 0 || amalgamation.indexOf(from, i + from.length) >= 0) {
+      throw new Error("Cannot add merge-result subtype to this DoltLite amalgamation")
+    }
+    amalgamation = amalgamation.slice(0, i) + to + amalgamation.slice(i + from.length)
+  }
+
+  replaceOnce(
+    "      DOLTLITE_COMMAND_FUNC_FLAGS, (void*)xFunc,",
+    [
+      "      DOLTLITE_COMMAND_FUNC_FLAGS |",
+      '      (sqlite3_stricmp(zName, "dolt_merge")==0 ? SQLITE_RESULT_SUBTYPE : 0),',
+      "      (void*)xFunc,",
+    ].join("\n")
+  )
+  const fastForwardResult = [
+    "  doltliteHashToHex(pTheirHead, hx);",
+    "  sqlite3_result_text(context, hx, -1, SQLITE_TRANSIENT);",
+  ].join("\n")
+  replaceOnce(fastForwardResult, [
+    fastForwardResult,
+    "  if( !squash && (context->pFunc->funcFlags & SQLITE_RESULT_SUBTYPE) ){",
+    "    sqlite3_result_subtype(context, DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE);",
+    "  }",
+  ].join("\n"))
+  amalgamation = "#define DOLTLITE_MERGE_FAST_FORWARD_SUBTYPE 'F'\n" + amalgamation
+}
 fs.writeFileSync(outC, amalgamation)
 fs.copyFileSync(inH, outH)
-fs.writeFileSync(versionMarker, `${pkg.version}\n`)
+fs.writeFileSync(versionMarker, `${pkg.version}\nDOLTLITE_MERGE_FAST_FORWARD_SUBTYPE\n`)
 
 // Kept for binding.gyp compatibility. DoltLite release amalgamations are now
 // self-contained and include the prefixed original SQLite implementation.
