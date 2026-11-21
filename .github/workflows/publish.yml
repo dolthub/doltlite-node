@@ -204,7 +204,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          tarballs=(dist/*.tgz)
+          tarballs=("$PWD"/dist/*.tgz)
           test "${#tarballs[@]}" -eq 1
           tarball="${tarballs[0]}"
           version=$(node -p 'require("./package.json").version')
